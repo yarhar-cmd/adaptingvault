@@ -1,0 +1,27 @@
+{
+  "name": "mirrorvault-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/frontend", "apps/backend"],
+  "scripts": {
+    "dev": "concurrently -n FRONTEND,API -c green,yellow \"node node_modules/vite/bin/vite.js apps/frontend --host 0.0.0.0 --port 5173\" \"node node_modules/tsx/dist/cli.mjs watch apps/backend/src/server.ts\"",
+    "dev:frontend": "node node_modules/vite/bin/vite.js apps/frontend --host 0.0.0.0 --port 5173",
+    "dev:backend": "node node_modules/tsx/dist/cli.mjs watch apps/backend/src/server.ts",
+    "build": "node node_modules/typescript/bin/tsc -b apps/frontend/tsconfig.json && node node_modules/vite/bin/vite.js build apps/frontend && node node_modules/typescript/bin/tsc -p apps/backend/tsconfig.json",
+    "typecheck": "node node_modules/typescript/bin/tsc -b apps/frontend/tsconfig.json --pretty false && node node_modules/typescript/bin/tsc -p apps/backend/tsconfig.json --noEmit --pretty false",
+    "lint": "eslint apps --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.1",
+    "concurrently": "^9.2.0",
+    "eslint": "^9.30.1",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.3.0",
+    "prettier": "^3.6.2",
+    "typescript-eslint": "^8.36.0"
+  }
+}

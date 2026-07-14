@@ -1,0 +1,30 @@
+:root {
+  color-scheme: dark;
+  --ink-950: #06130e;
+  --ink-900: #091a13;
+  --ink-850: #0c2118;
+  --ink-800: #112a20;
+  --parchment: #e8e0d0;
+  --parchment-muted: #b7b09f;
+  --brass: #d3a94c;
+  --brass-bright: #efc86c;
+  --rust: #ad4e34;
+  --sage: #7e9c82;
+  --line: rgba(211, 169, 76, 0.28);
+  --line-soft: rgba(232, 224, 208, 0.13);
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+  --glow: 0 0 28px rgba(211, 169, 76, 0.18);
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --space-1: 0.35rem;
+  --space-2: 0.7rem;
+  --space-3: 1rem;
+  --space-4: 1.5rem;
+  --space-5: 2.25rem;
+  --space-6: 3.5rem;
+  --space-7: 5rem;
+  --display: Georgia, 'Times New Roman', serif;
+  --ui: 'Segoe UI', Arial, sans-serif;
+  --mono: 'Cascadia Mono', Consolas, monospace;
+  --transition: 180ms ease;
+}
