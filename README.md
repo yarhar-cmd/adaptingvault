@@ -4,6 +4,15 @@ Mirrorvault Local is an editable, local-first recreation of the **Mirrorvault ad
 
 This repository is intentionally a functional prototype. Story scenes and adaptations are labeled mock content. It does not call an AI provider, require an API key, create user accounts, or use a database.
 
+## Planning and architecture
+
+- [Current repository assessment](docs/CURRENT_STATE.md)
+- [Development plan and immediate milestone](docs/DEVELOPMENT_PLAN.md)
+- [Phased feature roadmap](docs/ROADMAP.md)
+- [Recommended architecture](docs/ARCHITECTURE.md)
+- [Prioritized checkbox backlog](docs/BACKLOG.md)
+- [Earlier future-backend notes](docs/future-backend-plan.md)
+
 ## Technology
 
 - React 19, TypeScript, Vite, and React Router for the frontend
@@ -155,6 +164,7 @@ Environment variables belong in app-specific `.env` files and are documented in 
 ## Quality commands
 
 ```powershell
+npm run test
 npm run lint
 npm run typecheck
 npm run build

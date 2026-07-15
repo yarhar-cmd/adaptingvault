@@ -3,13 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/frontend", "apps/backend"],
+  "workspaces": [
+    "apps/frontend",
+    "apps/backend"
+  ],
   "scripts": {
     "dev": "concurrently -n FRONTEND,API -c green,yellow \"node node_modules/vite/bin/vite.js apps/frontend --host 0.0.0.0 --port 5173\" \"node node_modules/tsx/dist/cli.mjs watch apps/backend/src/server.ts\"",
     "dev:frontend": "node node_modules/vite/bin/vite.js apps/frontend --host 0.0.0.0 --port 5173",
     "dev:backend": "node node_modules/tsx/dist/cli.mjs watch apps/backend/src/server.ts",
     "build": "node node_modules/typescript/bin/tsc -b apps/frontend/tsconfig.json && node node_modules/vite/bin/vite.js build apps/frontend && node node_modules/typescript/bin/tsc -p apps/backend/tsconfig.json",
     "typecheck": "node node_modules/typescript/bin/tsc -b apps/frontend/tsconfig.json --pretty false && node node_modules/typescript/bin/tsc -p apps/backend/tsconfig.json --noEmit --pretty false",
+    "test": "node node_modules/vitest/vitest.mjs run --root apps/frontend",
     "lint": "eslint apps --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

@@ -1,4 +1,5 @@
 import type { RunRecord, UserSettings } from '../types/adventure';
+import { getPlayableCharacterId } from '../data/characterAvailability';
 
 const RUNS_KEY = 'mirrorvault:runs';
 const SETTINGS_KEY = 'mirrorvault:settings';
@@ -39,9 +40,9 @@ export function saveSettings(settings: UserSettings): void {
 }
 
 export function loadCharacter(): string {
-  return localStorage.getItem(CHARACTER_KEY) ?? 'warden';
+  return getPlayableCharacterId(localStorage.getItem(CHARACTER_KEY) ?? 'warden');
 }
 
 export function saveCharacter(characterId: string): void {
-  localStorage.setItem(CHARACTER_KEY, characterId);
+  localStorage.setItem(CHARACTER_KEY, getPlayableCharacterId(characterId));
 }

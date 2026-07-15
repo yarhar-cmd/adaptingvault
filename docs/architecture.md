@@ -1,50 +1,309 @@
-# Architecture
+# Recommended Mirrorvault architecture
 
-## Goals
+## Architecture goal
 
-Mirrorvault is split into a React frontend and an Express API so each can evolve independently. The current product remains useful without a server connection, but all backend-capable operations have a clear replacement boundary.
+Keep Mirrorvault understandable as it grows: one frontend application, one API, one shared contract layer, and explicit boundaries around game rules, persistence, authentication, and external providers. The project does not need microservices, event streaming, GraphQL, a complex state library, or a plugin system at its current scale.
 
-## Workspace boundary
-
-The root npm workspace coordinates `apps/frontend` and `apps/backend`. Each application owns its dependencies, TypeScript configuration, environment example, development command, and build output. Root commands provide one beginner-friendly entry point.
-
-## Frontend
-
-The frontend is a Vite single-page application. React Router maps route-level page components into `AppShell`, which owns persistent navigation, the footer, mobile navigation, and the API-health indicator.
-
-The visual system is split into:
-
-- `theme.css` for custom properties and design tokens
-- `global.css` for resets, typography, focus behavior, and reusable buttons
-- `components.css` for shared shell and form patterns
-- `pages.css` for route-level compositions and responsive rules
-
-This keeps the original visual language centralized without tying each small component to a separate stylesheet.
-
-`AdventureProvider` owns only state shared across routes: selected character and user settings. Active dungeon state remains inside `DungeonPage`, preventing unrelated routes from depending on game internals.
-
-Mock content lives in `services/mockAdventureService.ts`. The UI does not claim this content is produced by AI. `services/api.ts` is the only place that knows the API base URL. `services/storage.ts` is the only place that knows browser-storage keys.
-
-## Backend
-
-The API follows a thin layered design:
+## Recommended near-term structure
 
 ```text
-route → validation middleware → controller → service → response
+apps/
+  frontend/
+    src/
+      app/
+        App.tsx
+        routes.tsx
+        providers.tsx
+      components/
+        common/
+        layout/
+      features/
+        dungeon/
+          components/
+          data/
+          hooks/
+          model/
+          pages/
+        characters/
+        history/
+        settings/
+        contact/
+      services/
+        api/
+        storage/
+      styles/
+      test/
+  backend/
+    src/
+      config/
+      middleware/
+      modules/
+        adventures/
+          adventure.controller.ts
+          adventure.repository.ts
+          adventure.routes.ts
+          adventure.schema.ts
+          adventure.service.ts
+        contact/
+        health/
+      providers/
+      app.ts
+      server.ts
+packages/
+  contracts/
+    src/
+      adventure.ts
+      api.ts
+docs/
 ```
 
-Routes own paths and request schemas. Controllers translate requests into service calls. Services own mock domain behavior. Shared error middleware converts known and unknown failures to consistent JSON. This is deliberately more structured than the current feature set requires so later database and model-provider integrations do not force an application rewrite.
+This should be introduced incrementally. Moving every current file at once would create noise without improving behavior.
 
-The API disables the Express signature header, limits JSON bodies, allows only the configured frontend origin, logs local requests, and returns explicit 404 and validation errors.
+## Frontend boundaries
 
-## Adaptation model
+### App layer
 
-The original experience distinguishes stable mechanics from changing composition. The local prototype represents this as a `DungeonConfig` plus sequential scenes. Later rooms interpolate the selected challenge and playstyle into labeled mock copy. A future implementation can replace the mock service with a scoring engine while keeping the same component contract.
+The app layer should contain routing, top-level providers, error boundaries, document metadata, and global shell concerns. It should not contain dungeon rules.
 
-## Accessibility and responsive behavior
+### Feature folders
 
-The shell provides a skip link, semantic navigation, visible focus rings, labeled forms, press-state buttons, keyboard dungeon controls, a reduced-motion preference, and system reduced-motion support. Layouts collapse at 920px and 600px, with bottom navigation on smaller viewports. The dungeon grid uses aspect ratios instead of fixed pixels to avoid horizontal overflow.
+Group files by behavior once a feature has more than a page and one or two components. The dungeon is already large enough to become a feature folder. Characters, history, and settings can remain small until their behavior grows.
 
-## Decisions deferred
+### Dungeon domain model
 
-Authentication, database storage, model providers, email delivery, analytics, and production deployment are intentionally absent. Their proposed boundaries are documented in `future-backend-plan.md`.
+Represent a room as data rather than hard-coded CSS coordinates:
+
+```ts
+type TileKind = 'floor' | 'wall' | 'exit' | 'rune' | 'hazard' | 'enemy' | 'treasure';
+
+interface RoomDefinition {
+  id: string;
+  width: number;
+  height: number;
+  tiles: Tile[];
+  entities: Entity[];
+  objectives: Objective[];
+  narrative: SceneContent;
+}
+```
+
+Keep state transitions in a reducer or pure state machine:
+
+```text
+SETUP → LOADING_ROOM → PLAYING → ROOM_COMPLETE → LOADING_ROOM
+                                          ↘ RUN_COMPLETE
+PLAYING → RUN_FAILED
+```
+
+Actions such as move, attack, shield, interact, choose narrative option, reset, and retry should produce explicit state changes and events. Pure transition functions can be unit-tested without rendering React.
+
+### Adaptation engine
+
+Start with a deterministic frontend/domain service, not AI. It should accept bounded events and return an explainable profile:
+
+```text
+events → metrics → adaptation profile → seeded room composer
+```
+
+Suggested initial metrics:
+
+- completion duration
+- damage taken
+- attacks attempted/hit
+- shield timing
+- optional hazards entered
+- treasure accepted/skipped
+- direct vs alternate exit
+- retry count
+
+Suggested output weights:
+
+- combat density
+- hazard density
+- puzzle density
+- exploration branching
+- reward risk
+- pressure target
+
+The same seed plus profile should produce the same room. This makes adaptive and control runs comparable and debuggable.
+
+### Client persistence
+
+Keep anonymous preferences, selected character, and a bounded recent-run cache in `localStorage`. Add:
+
+- Zod schemas at the storage boundary
+- a storage version number
+- migrations for changed shapes
+- safe fallbacks when data is corrupt
+- explicit clear/export controls
+
+Do not store access tokens, privileged roles, API secrets, or sensitive profile data in `localStorage`.
+
+## Shared contracts
+
+Create `packages/contracts` when the next API response is consumed by the UI. It should contain only serializable TypeScript types and Zod schemas shared by both apps. It must not import React, Express, database libraries, or provider SDKs.
+
+Good shared candidates:
+
+- `AdventureConfig`
+- `AdventureSummary`
+- `RunEvent`
+- `RunSummary`
+- API error envelope
+- request/response schemas
+
+This removes the current duplicate adventure configuration definitions and gives the API client typed responses.
+
+## Backend boundaries
+
+### Keep frontend-only for now
+
+- anonymous setup state
+- immediate movement and combat interactions
+- deterministic room rendering
+- accessibility preferences
+- selected character
+- optional recent-run cache
+- explainable local adaptation calculations during prototype development
+
+These features benefit from instant feedback and do not require trust or centralized persistence.
+
+### Move to the backend when needed
+
+- durable account-owned runs
+- cross-device synchronization
+- public/shareable adventures
+- authoritative achievements or leaderboards
+- contact delivery
+- admin moderation
+- usage limits
+- AI/provider calls
+- billing or entitlements
+
+Anything requiring secrecy, authorization, global uniqueness, moderation, or trusted records belongs on the server.
+
+### Module pattern
+
+Each backend module should own its route, request schema, controller, service, and repository interface. Controllers should translate HTTP; services should implement use cases; repositories should isolate persistence. Avoid adding a generic repository abstraction until at least two real repositories need the same behavior.
+
+### Environment configuration
+
+Choose one backend environment location and validate it at startup. Recommended options:
+
+1. Run the backend with `cwd=apps/backend` and keep `apps/backend/.env`, or
+2. Use a root `.env` and document it as the single server configuration file.
+
+Parse all values with a schema. Reject invalid ports, origins, missing production secrets, and unsupported environment names before listening.
+
+## Database recommendation
+
+Do not add a database until the run schema and save behavior are stable. When ready, PostgreSQL is the safest default because the data is relational and likely to need filtering, ownership, migrations, and transactional updates.
+
+Recommended first tables:
+
+- `users`
+- `characters`
+- `adventures`
+- `runs`
+- `run_events`
+- `adaptation_profiles`
+- `refresh_sessions` only if the chosen auth system requires them
+
+Store generated room definitions and adaptation profiles as versioned JSON only where their shapes are naturally document-like. Keep ownership, status, timestamps, and searchable fields as normal columns.
+
+Use migrations from the first database commit. Add a repository interface so unit tests can use an in-memory implementation without pretending the database does not exist.
+
+## Authentication and accounts
+
+Prefer a maintained authentication service or library that supports secure server-side sessions. Do not build password storage from scratch.
+
+Recommended flow:
+
+1. Add authentication only after anonymous runs are stable.
+2. Keep anonymous play available.
+3. Let a new account import local runs explicitly.
+4. Use secure, HTTP-only, same-site cookies where the deployment topology allows it.
+5. Enforce authorization in services/repositories, not only route components.
+6. Add account data export and deletion before storing meaningful histories.
+
+Frontend route guards improve UX but never replace backend authorization.
+
+## API design
+
+Keep REST for the current product. Suggested future resources:
+
+```text
+GET    /api/health
+GET    /api/me
+GET    /api/characters
+GET    /api/runs
+POST   /api/runs
+GET    /api/runs/:runId
+POST   /api/runs/:runId/events
+POST   /api/runs/:runId/complete
+DELETE /api/runs/:runId
+POST   /api/contact
+```
+
+Use a consistent error envelope with a request ID, stable error code, user-safe message, and optional validation details. Add pagination before run lists can grow without bounds.
+
+## AI integration
+
+AI should be an optional backend provider behind an `AdventureGenerator` interface. Do not let provider output directly become executable rules or trusted database fields.
+
+Pipeline:
+
+1. Convert validated run signals into a bounded generation brief.
+2. Request structured output.
+3. Validate output against room/content schemas.
+4. Apply deterministic rule validation: reachable exit, bounded enemies, legal coordinates, allowed content.
+5. Fall back to authored templates on failure or timeout.
+6. Record provider/model/schema version without storing secrets.
+
+Rate limits, content moderation, cost caps, timeouts, retries, and redacted observability are prerequisites for public AI generation.
+
+## Admin dashboard
+
+Do not add an admin dashboard until there is real moderated or operational data. When required, build it as a protected route group or a small separate frontend only if deployment/security needs differ.
+
+Potential capabilities:
+
+- review flagged generated content
+- inspect failed generations and schema violations
+- manage authored templates
+- view aggregate system health and usage
+- suspend accounts or revoke shared content
+
+Every admin action must be authorized on the backend and written to an audit log. Never infer admin access from a client-side flag.
+
+## Testing architecture
+
+Use a small testing pyramid:
+
+- Pure unit tests for dungeon transitions, scoring, seeded generation, storage migration, and services
+- React component/integration tests for setup, navigation, settings, history, error states, and accessibility semantics
+- API integration tests for validation, CORS, errors, and future authorization
+- A few end-to-end tests for the critical anonymous run and account save flows
+
+Recommended tools are Vitest, React Testing Library, Supertest, and Playwright. Add them only as the corresponding test layer is introduced.
+
+## Deployment shape
+
+Initially deploy two artifacts:
+
+- static Vite frontend with SPA fallback routing
+- Node API process behind HTTPS
+
+Use separate staging and production environments. Configure exact allowed origins, secure headers, request limits, health/readiness checks, structured logs, and a managed secret store. Add a managed PostgreSQL database only in the database phase.
+
+## Decisions to avoid for now
+
+- Microservices
+- GraphQL
+- Redux or another global state library before reducer/context boundaries prove insufficient
+- WebSockets before real-time collaboration exists
+- Kubernetes
+- Event sourcing
+- Custom authentication/password storage
+- A separate admin application without real admin use cases
+- AI-generated mechanics before deterministic rules are validated
