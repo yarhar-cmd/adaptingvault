@@ -71,6 +71,10 @@ export async function createMockAdventure(
   roomIndex: number,
 ): Promise<AdventureScene> {
   await new Promise((resolve) => window.setTimeout(resolve, 220));
+  return getMockAdventure(config, roomIndex);
+}
+
+export function getMockAdventure(config: DungeonConfig, roomIndex: number): AdventureScene {
   const base = scenes[roomIndex % scenes.length];
   if (!base) throw new Error('No mock chamber is available.');
 

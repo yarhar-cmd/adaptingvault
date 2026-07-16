@@ -1,27 +1,31 @@
 export function StatusPanel({
   room,
+  roomLabel,
   mode,
   character,
   currentHealth,
   maximumHealth,
   isInvulnerable,
   isDefeated,
+  dungeonRoomsCleared,
 }: {
-  room: number;
+  room?: number;
+  roomLabel?: string;
   mode: string;
   character: string;
   currentHealth: number;
   maximumHealth: number;
   isInvulnerable: boolean;
   isDefeated: boolean;
+  dungeonRoomsCleared?: number;
 }) {
   const healthStatus = isDefeated ? ' You were defeated.' : isInvulnerable ? ' Invulnerable.' : '';
 
   return (
     <aside className="run-status" aria-label="Current run status">
       <div>
-        <span>{room <= 3 ? 'Assessment' : 'Adaptation'}</span>
-        <strong>{String(room).padStart(2, '0')} / 06</strong>
+        <span>Location</span>
+        <strong>{roomLabel ?? `${String(room ?? 1).padStart(2, '0')} / 06`}</strong>
       </div>
       <div>
         <span>Mode</span>
@@ -31,6 +35,12 @@ export function StatusPanel({
         <span>Delver</span>
         <strong>{character}</strong>
       </div>
+      {dungeonRoomsCleared !== undefined && (
+        <div>
+          <span>Dungeon Rooms Cleared</span>
+          <strong>{dungeonRoomsCleared}</strong>
+        </div>
+      )}
       <div
         className="health"
         aria-label={`${currentHealth} of ${maximumHealth} health remaining.${healthStatus}`}

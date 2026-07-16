@@ -209,6 +209,8 @@ export function useCharacterControls({
       stopMovementTimer();
       heldShiftKeysRef.current.clear();
       pointerShieldingRef.current = false;
+      pressOrderRef.current = 0;
+      lastAttackAtRef.current = Number.NEGATIVE_INFINITY;
       synchronizeShieldState();
     }
   }, [enabled, stopMovementTimer, synchronizeShieldState]);

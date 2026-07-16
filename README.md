@@ -1,6 +1,6 @@
-# Mirrorvault Local
+# Resonant Ruins Local
 
-Mirrorvault Local is an editable, local-first recreation of the **Mirrorvault adaptive dungeon experiment**. It preserves the original dark-vault atmosphere and its core idea: observe how a player approaches three assessment rooms, then change later room composition while the underlying rules remain stable.
+Resonant Ruins Local is an editable, local-first adaptive dungeon prototype. It preserves the original dark-vault atmosphere while observing five authored Awakening Chambers and deterministically generating an endless sequence of later Dungeon Rooms.
 
 This repository is intentionally a functional prototype. Story scenes and adaptations are labeled mock content. It does not call an AI provider, require an API key, create user accounts, or use a database.
 
@@ -19,7 +19,8 @@ This repository is intentionally a functional prototype. Story scenes and adapta
 - Node.js, Express, TypeScript, Zod validation, CORS, and Morgan for the backend
 - npm workspaces for running both apps from one root
 - ESLint and Prettier for code quality
-- browser `localStorage` for selected character, preferences, and completed demo runs
+- browser `localStorage` for selected character, preferences, experience preset, adaptive profile,
+  shortcut unlock, a validated active run snapshot, and preset-partitioned run records and bests
 
 ## Folder structure
 
@@ -114,7 +115,19 @@ Layout components define the shell, header, footer, desktop links, and mobile li
 
 To add a component, create a focused `.tsx` file under the best matching component folder. Accept data and callbacks as props, keep page-specific state in the page, and move shared state into context or a dedicated hook only when multiple routes need it.
 
-The `AdventureProvider` shares the selected character and settings. The dungeon page owns active-run state so leaving the page naturally abandons the unfinished mock run.
+The `AdventureProvider` shares the selected character, settings, and versioned local player profile. The dungeon page owns live
+gameplay state and writes a validated, versioned snapshot at meaningful checkpoints so an active or
+defeated run can survive a browser refresh without counting closed-tab time.
+
+The first run uses `Experience Choice → Run Setup → Delve`. Returning runs begin at Run Setup,
+while Restart Run immediately reuses the current preset and settings. Authored room IDs remain
+`evaluation-room-*` internally for migration safety, but their player-facing labels are Awakening
+Chambers. Completing all five unlocks Chamber 1's persistent generated-dungeon shortcut.
+
+Generated rooms are derived from a run seed, room number, chosen exit, and generator version. The
+generator supports rectangles and L-shapes, one to three exits, red-rune hazards, deterministic
+validation/retries, and a known-safe fallback. The active-run record stores both the seed inputs and
+the exact validated current-room snapshot so refreshes do not change the room.
 
 ## Frontend and backend communication
 
@@ -132,13 +145,19 @@ The unobtrusive lower-corner status indicator calls `GET /api/health`. If the ba
 
 `mockAdventureService.ts` returns deterministic example scenes. The first three are assessment rooms. Rooms four through six add an adaptation sentence based on the selected mode, challenge, and playstyle. The service interface is deliberately separate from UI code so a future API implementation can replace it.
 
-The browser stores only:
+The browser stores only prototype data under these keys:
 
 - `mirrorvault:character`
 - `mirrorvault:settings`
 - `mirrorvault:runs`
+- `mirrorvault:run-archive:v1`
+- `mirrorvault:active-run:v1`
 
-Clear the run archive on `/history`, or clear site data in browser settings to reset everything.
+The active-run record contains the run ID, character, health, elapsed active time, room order,
+current room and tile, facing, stable statistics, and evaluation analytics. Temporary input, fade,
+damage-feedback, and focus state are intentionally excluded. Main Menu discards the active record;
+Restart replaces it. Clear the run archive on `/history`, or clear site data in browser settings to
+reset everything.
 
 ## API routes and adding another route
 

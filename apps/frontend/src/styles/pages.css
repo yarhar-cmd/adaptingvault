@@ -344,9 +344,149 @@
   margin-bottom: 1rem;
 }
 .game-board-panel {
+  position: relative;
   background: var(--ink-900);
   color: var(--parchment);
   border: 1px solid var(--line);
+}
+.game-over-region {
+  position: relative;
+}
+.game-over-backdrop {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: clamp(0.75rem, 3vw, 2rem);
+  background: rgba(4, 13, 9, 0.66);
+}
+.game-over-dialog {
+  position: relative;
+  width: min(100%, 520px);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: clamp(1.25rem, 4vw, 2.4rem);
+  border: 1px solid var(--brass);
+  background: var(--ink-950);
+  color: var(--parchment);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 3px rgba(211, 169, 76, 0.08);
+  animation: resonant-game-over 320ms ease-out both;
+}
+.game-over-dialog:focus {
+  outline: 2px solid var(--brass-bright);
+  outline-offset: 3px;
+}
+.game-over-dialog .eyebrow {
+  margin-bottom: 0.6rem;
+}
+.game-over-dialog h2 {
+  margin-bottom: 0.35rem;
+  color: var(--parchment);
+  font-size: clamp(2.2rem, 6vw, 3.6rem);
+}
+.game-over-dialog__subtitle {
+  margin-bottom: 1.5rem;
+  color: var(--parchment-muted);
+}
+.game-over-dialog__close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 2.4rem;
+  height: 2.4rem;
+  border: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--parchment);
+  cursor: pointer;
+}
+.game-over-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 1.5rem;
+  background: var(--line-soft);
+  border: 1px solid var(--line-soft);
+}
+.game-over-stats div {
+  min-width: 0;
+  padding: 0.85rem 1rem;
+  background: var(--ink-900);
+}
+.game-over-stats dt,
+.compact-results-strip small {
+  color: var(--parchment-muted);
+  font: 0.58rem var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.game-over-stats dd {
+  margin: 0.35rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--parchment);
+  font: 0.92rem var(--mono);
+}
+.game-over-dialog__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+.game-over-dialog__hints {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin: 1.1rem 0 0;
+  color: var(--parchment-muted);
+  font: 0.6rem var(--mono);
+}
+.compact-results-strip {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto 1rem;
+  padding: 0;
+  border: 1px solid var(--brass);
+  background: var(--ink-900);
+  color: var(--parchment);
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(4, 13, 9, 0.22);
+  animation: resonant-results-drop 220ms ease-out both;
+}
+.compact-results-strip > span {
+  display: grid;
+  min-width: 5.7rem;
+  gap: 0.25rem;
+  padding: 0.65rem 0.9rem;
+}
+.compact-results-strip > span + span {
+  border-left: 1px solid var(--line-soft);
+}
+.compact-results-strip strong {
+  font: 0.78rem var(--mono);
+}
+.run-storage-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: min(100%, 680px);
+  margin: 0 auto 1rem;
+  padding: 0.65rem 0.8rem 0.65rem 1rem;
+  border: 1px solid var(--rust);
+  background: #2a1713;
+  color: var(--parchment);
+  font: 0.7rem var(--mono);
+}
+.run-storage-warning button {
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(244, 232, 201, 0.28);
+  background: transparent;
+  color: var(--parchment);
+  cursor: pointer;
 }
 .chamber-label {
   display: flex;
@@ -357,27 +497,114 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.dungeon-grid {
+.dungeon-grid-shell {
+  container-type: inline-size;
+}
+.dungeon-grid-viewport {
+  /* Fit the 19-column maximum once; every authored room inherits this same scale. */
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  max-width: 780px;
-  margin: 0 auto;
-  padding: clamp(1rem, 3vw, 2.5rem);
+  grid-template-columns: repeat(19, var(--dungeon-tile-size));
+  grid-template-rows: repeat(13, var(--dungeon-tile-size));
+  place-content: center;
+  width: 100%;
+  padding: 0.5rem;
+  overflow: hidden;
   background: repeating-linear-gradient(
     135deg,
     rgba(126, 156, 130, 0.04) 0 4px,
     transparent 4px 8px
   );
+}
+.dungeon-grid {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  grid-template-columns: repeat(var(--room-columns), var(--dungeon-tile-size));
+  grid-template-rows: repeat(var(--room-rows), var(--dungeon-tile-size));
+  place-self: center;
+  margin: 0;
   outline: none;
 }
 .dungeon-grid:focus-visible {
   box-shadow: inset 0 0 0 2px var(--brass);
 }
 .tile {
+  width: var(--dungeon-tile-size);
+  height: var(--dungeon-tile-size);
   aspect-ratio: 1;
   position: relative;
   border: 1px solid rgba(126, 156, 130, 0.1);
   background: #0c1d16;
+}
+.tile--floor {
+  background: #0c1d16;
+}
+.tile--wall {
+  border-color: rgba(211, 169, 76, 0.16);
+  background: linear-gradient(135deg, rgba(126, 156, 130, 0.12), transparent 55%), #07130e;
+  box-shadow: inset 0 0 0 2px rgba(4, 13, 9, 0.5);
+}
+.tile--wall::after {
+  content: '';
+  position: absolute;
+  inset: 24%;
+  border: 1px solid rgba(126, 156, 130, 0.3);
+  transform: rotate(45deg);
+}
+.tile--collapsed-entrance {
+  border-color: rgba(133, 49, 39, 0.45);
+  background:
+    radial-gradient(circle at 30% 65%, #4d3a2a 0 14%, transparent 15%),
+    radial-gradient(circle at 68% 42%, #66503a 0 17%, transparent 18%),
+    radial-gradient(circle at 50% 78%, #352a20 0 20%, transparent 21%), #09140f;
+}
+.tile--collapsed-entrance::after {
+  content: '×';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--rust);
+  font: 700 clamp(0.55rem, 1.4vw, 0.9rem) var(--mono);
+}
+.tile--exit-open {
+  border-color: var(--brass);
+  background: rgba(211, 169, 76, 0.14);
+  box-shadow: inset 0 0 12px rgba(211, 169, 76, 0.2);
+}
+.tile--exit-open::after {
+  content: '→';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--brass-bright);
+  font: 700 clamp(0.55rem, 1.4vw, 0.9rem) var(--mono);
+}
+.tile--exit-closed {
+  border-color: var(--rust);
+  background: repeating-linear-gradient(90deg, #101b15 0 18%, #43231e 18% 28%);
+}
+.tile--exit-sealed {
+  background:
+    radial-gradient(circle, rgba(170, 67, 47, 0.28), transparent 58%),
+    repeating-linear-gradient(45deg, #14271f 0 3px, #071711 3px 7px);
+  box-shadow:
+    inset 0 0 0 1px rgba(191, 151, 62, 0.42),
+    inset 0 0 0 4px rgba(5, 20, 14, 0.75);
+}
+.tile--exit-closed::after {
+  content: '×';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--parchment-muted);
+  font: 700 clamp(0.55rem, 1.4vw, 0.9rem) var(--mono);
+}
+.tile--void {
+  border-color: transparent;
+  background: transparent;
 }
 .tile--player::after {
   content: '';
@@ -785,8 +1012,29 @@
   .game-controls {
     grid-template-columns: 1fr;
   }
-  .dungeon-grid {
-    padding: 0.5rem;
+  .game-over-backdrop {
+    align-items: start;
+    padding: 0.6rem;
+  }
+  .game-over-dialog {
+    padding: 1.1rem;
+  }
+  .game-over-stats,
+  .game-over-dialog__actions {
+    grid-template-columns: 1fr;
+  }
+  .game-over-dialog__hints {
+    align-items: center;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .compact-results-strip {
+    width: 100%;
+  }
+  .compact-results-strip > span {
+    min-width: 0;
+    flex: 1;
+    padding-inline: 0.55rem;
   }
   .chamber-label {
     gap: 1rem;
@@ -946,6 +1194,53 @@
   white-space: nowrap;
   border: 0;
 }
+.room-status-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.room-transition {
+  position: absolute;
+  z-index: 9;
+  inset: 0;
+  background: #000;
+  pointer-events: auto;
+}
+.room-transition--fading-out {
+  animation: room-fade-out 150ms linear both;
+}
+.room-transition--fading-in {
+  animation: room-fade-in 150ms linear both;
+}
+.evaluation-complete-text {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  pointer-events: none;
+  color: var(--parchment);
+  text-align: center;
+  text-shadow: 0 2px 12px #000;
+  animation: evaluation-complete-fade 800ms ease 2s both;
+}
+.evaluation-complete-text strong {
+  font: clamp(1.8rem, 5vw, 3.6rem) var(--display);
+}
+.evaluation-complete-text span {
+  margin-top: 0.35rem;
+  color: var(--brass-bright);
+  font: 0.72rem var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
 
 @keyframes resonant-slash {
   from {
@@ -999,13 +1294,203 @@
     transform: translateY(0) scale(1);
   }
 }
+@keyframes resonant-game-over {
+  0% {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.97);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(-0.2rem) scale(1.01);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes resonant-results-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-0.7rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes room-fade-out {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes room-fade-in {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes evaluation-complete-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.experience-choice,
+.run-setup {
+  max-width: 70rem;
+  margin-inline: auto;
+}
+.experience-choice__options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+  border: 0;
+  padding: 0;
+}
+.experience-choice__options legend {
+  margin-bottom: 0.75rem;
+  color: var(--muted);
+}
+.experience-choice__options label {
+  display: flex;
+  min-height: 4.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  border: 1px solid rgba(191, 151, 62, 0.34);
+  background: rgba(5, 25, 18, 0.82);
+  color: var(--paper);
+  cursor: pointer;
+}
+.experience-choice__options label.is-selected {
+  border-color: var(--brass);
+  box-shadow: inset 0 0 0 2px rgba(191, 151, 62, 0.18);
+}
+.run-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 28rem) minmax(0, 1fr);
+  align-items: center;
+  text-align: center;
+}
+.run-setup__center {
+  grid-column: 2;
+}
+.run-setup__center .button {
+  margin-top: 1rem;
+}
+.confirmation-backdrop {
+  position: fixed;
+  z-index: 90;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 10, 7, 0.82);
+}
+.confirmation-dialog {
+  width: min(34rem, 100%);
+  border: 1px solid var(--brass);
+  padding: clamp(1.25rem, 4vw, 2rem);
+  background: var(--vault-green);
+  color: var(--paper);
+  box-shadow: 0 1rem 4rem rgba(0, 0, 0, 0.5);
+}
+.confirmation-dialog__actions,
+.debug-tools__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+.settings-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.settings-action span {
+  display: grid;
+  gap: 0.25rem;
+}
+.debug-tools {
+  margin-top: 1rem;
+  border: 1px solid rgba(191, 151, 62, 0.35);
+  padding: 1rem;
+  background: rgba(4, 20, 14, 0.96);
+  color: var(--paper);
+}
+.debug-tools > summary {
+  cursor: pointer;
+  color: var(--brass);
+  font-family: var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.debug-tools__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.debug-tools section {
+  min-width: 0;
+  border: 1px solid rgba(218, 209, 181, 0.16);
+  padding: 0.8rem;
+}
+.debug-tools dl,
+.debug-tools label {
+  display: grid;
+  gap: 0.35rem;
+}
+.debug-tools dl > div {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 0.5rem;
+  border-bottom: 1px solid rgba(218, 209, 181, 0.1);
+  padding: 0.3rem 0;
+}
+.debug-tools dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.debug-tools input[type='range'] {
+  width: 100%;
+}
+@media (max-width: 48rem) {
+  .experience-choice__options,
+  .debug-tools__grid {
+    grid-template-columns: 1fr;
+  }
+  .run-setup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .run-setup__center {
+    grid-column: 1;
+  }
+  .settings-action {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .attack-slash,
   .player-token--bump,
   .player-token--damaged,
   .player-token--invulnerable,
-  .player-token--defeated {
+  .player-token--defeated,
+  .game-over-dialog,
+  .compact-results-strip,
+  .room-transition,
+  .evaluation-complete-text {
     animation: none;
   }
   .player-token--invulnerable {

@@ -1,4 +1,10 @@
-import { useEffect, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 import type {
   AttackAction,
   CardinalDirection,
@@ -7,9 +13,14 @@ import type {
   RoomBounds,
 } from '../../types/player';
 import type { AvoidedDamageEvent, DamageEvent, GameplayStatus } from '../../utils/gameplayState';
+import type { RoomDefinition, TileCoordinate } from '../../types/rooms';
 import { getProtectedTile, positionsMatch } from '../../utils/playerActions';
+import { coordinateKey, findExitAt, getFloorLookup, getWallLookup } from '../../utils/roomGeometry';
 
 const enemies = new Set(['2-3', '3-5']);
+const MAX_ROOM_COLUMNS = 21;
+const MAX_ROOM_ROWS = 15;
+const RESPONSIVE_TILE_SIZE = 'clamp(0.45rem, calc(4.7619047619cqw - 0.0476190476rem), 2.5rem)';
 
 export function DungeonGrid({
   bounds,
@@ -23,6 +34,9 @@ export function DungeonGrid({
   lastAvoidedDamage,
   announcement,
   controlsDisabled,
+  room,
+  collapsedEntrance,
+  hidePlayer = false,
   onMove,
   onAttack,
   onShieldChange,
@@ -38,6 +52,9 @@ export function DungeonGrid({
   lastAvoidedDamage: AvoidedDamageEvent | null;
   announcement: string;
   controlsDisabled: boolean;
+  room?: RoomDefinition;
+  collapsedEntrance?: TileCoordinate | null;
+  hidePlayer?: boolean;
   onMove: (direction: CardinalDirection) => void;
   onAttack: () => boolean;
   onShieldChange: (isShielding: boolean) => void;
@@ -47,6 +64,8 @@ export function DungeonGrid({
   const visibleDamage = useTemporaryFeedback(lastDamage, 180);
   const visibleAvoidedDamage = useTemporaryFeedback(lastAvoidedDamage, 160);
   const protectedTile = status === 'active' ? getProtectedTile(player, bounds) : null;
+  const floorLookup = room ? getFloorLookup(room) : null;
+  const wallLookup = room ? getWallLookup(room) : null;
   const facingArrows: Record<CardinalDirection, string> = {
     up: '↑',
     down: '↓',
@@ -85,96 +104,133 @@ export function DungeonGrid({
   }
 
   return (
-    <div>
+    <div className="dungeon-grid-shell">
       <div
-        className="dungeon-grid"
-        role="application"
-        aria-label="Resonant Ruins playable dungeon grid"
-        aria-describedby="resonant-ruins-grid-instructions"
-        data-game-input-surface
-        data-player-status={status}
-        data-invulnerable={isInvulnerable}
-        tabIndex={0}
+        className="dungeon-grid-viewport"
+        data-maximum-columns={MAX_ROOM_COLUMNS}
+        data-maximum-rows={MAX_ROOM_ROWS}
+        style={{ '--dungeon-tile-size': RESPONSIVE_TILE_SIZE } as CSSProperties}
       >
-        {Array.from({ length: bounds.rows * bounds.columns }, (_, index) => {
-          const row = Math.floor(index / bounds.columns);
-          const column = index % bounds.columns;
-          const position = { row, column };
-          const key = `${row}-${column}`;
-          const isPlayer = positionsMatch(position, player.position);
-          const isHazard = hazards.some((hazard) => positionsMatch(position, hazard));
-          const isProtected = protectedTile ? positionsMatch(position, protectedTile) : false;
-          const isAttackTarget =
-            status === 'active' && visibleAttack?.target
-              ? positionsMatch(position, visibleAttack.target)
+        <div
+          className="dungeon-grid"
+          role="application"
+          aria-label="Resonant Ruins playable dungeon grid"
+          aria-describedby="resonant-ruins-grid-instructions"
+          data-game-input-surface
+          data-player-status={status}
+          data-invulnerable={isInvulnerable}
+          data-room-columns={bounds.columns}
+          data-room-rows={bounds.rows}
+          tabIndex={0}
+          style={
+            {
+              '--room-columns': bounds.columns,
+              '--room-rows': bounds.rows,
+            } as CSSProperties
+          }
+        >
+          {Array.from({ length: bounds.rows * bounds.columns }, (_, index) => {
+            const row = Math.floor(index / bounds.columns);
+            const column = index % bounds.columns;
+            const position = { row, column };
+            const coordinate = { x: column, y: row };
+            const key = `${row}-${column}`;
+            const isPlayer = !hidePlayer && positionsMatch(position, player.position);
+            const isHazard = hazards.some((hazard) => positionsMatch(position, hazard));
+            const isCollapsed = collapsedEntrance
+              ? coordinateKey(collapsedEntrance) === coordinateKey(coordinate)
               : false;
-          const isBumping = visibleBlockedMove
-            ? status === 'active' &&
-              isPlayer &&
-              positionsMatch(player.position, visibleBlockedMove.target)
-            : false;
-          const kind = isPlayer
-            ? 'player'
-            : key === '0-6'
-              ? 'rune'
-              : key === '2-7'
-                ? 'exit'
-                : key === '2-1'
-                  ? 'treasure'
-                  : enemies.has(key)
-                    ? 'enemy'
-                    : 'empty';
-          const className = [
-            'tile',
-            `tile--${kind}`,
-            isHazard ? 'tile--hazard' : '',
-            isProtected ? 'tile--shield-protected' : '',
-            isAttackTarget ? 'tile--attack-target' : '',
-          ]
-            .filter(Boolean)
-            .join(' ');
+            const exit = room ? findExitAt(room, coordinate) : null;
+            const isWall = Boolean(wallLookup?.has(coordinateKey(coordinate)));
+            const isFloor = Boolean(floorLookup?.has(coordinateKey(coordinate)));
+            const isProtected = protectedTile ? positionsMatch(position, protectedTile) : false;
+            const isAttackTarget =
+              status === 'active' && visibleAttack?.target
+                ? positionsMatch(position, visibleAttack.target)
+                : false;
+            const isBumping = visibleBlockedMove
+              ? status === 'active' &&
+                isPlayer &&
+                positionsMatch(player.position, visibleBlockedMove.target)
+              : false;
+            const legacyKind =
+              key === '0-6'
+                ? 'rune'
+                : key === '2-7'
+                  ? 'exit'
+                  : key === '2-1'
+                    ? 'treasure'
+                    : enemies.has(key)
+                      ? 'enemy'
+                      : 'empty';
+            const kind = room
+              ? isCollapsed
+                ? 'collapsed-entrance'
+                : exit
+                  ? exit.enabled
+                    ? 'exit-open'
+                    : exit.kind === 'shortcut'
+                      ? 'exit-sealed'
+                      : 'exit-closed'
+                  : isWall
+                    ? 'wall'
+                    : isFloor
+                      ? 'floor'
+                      : 'void'
+              : legacyKind;
+            const className = [
+              'tile',
+              `tile--${kind}`,
+              isPlayer ? 'tile--player' : '',
+              isHazard ? 'tile--hazard' : '',
+              isProtected ? 'tile--shield-protected' : '',
+              isAttackTarget ? 'tile--attack-target' : '',
+            ]
+              .filter(Boolean)
+              .join(' ');
 
-          return (
-            <span key={key} className={className} aria-hidden="true">
-              {isPlayer && (
-                <span
-                  className={[
-                    'player-token',
-                    player.isShielding && status === 'active' ? 'player-token--shielding' : '',
-                    isBumping ? 'player-token--bump' : '',
-                    visibleDamage && !visibleDamage.fatal && status === 'active'
-                      ? 'player-token--damaged'
-                      : '',
-                    isInvulnerable && status === 'active' ? 'player-token--invulnerable' : '',
-                    visibleAvoidedDamage && status === 'active' ? 'player-token--avoided' : '',
-                    status === 'defeated' ? 'player-token--defeated' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                >
-                  {status !== 'defeated' && (
-                    <span className="player-token__facing">{facingArrows[player.facing]}</span>
-                  )}
-                  {player.isShielding && status === 'active' && (
-                    <span className="player-token__shield">◆</span>
-                  )}
-                  {isInvulnerable && status === 'active' && (
-                    <span className="player-token__invulnerable" aria-hidden="true">
-                      ◇
-                    </span>
-                  )}
-                  {status === 'defeated' && (
-                    <span className="player-token__dead-mark" aria-hidden="true">
-                      ×
-                    </span>
-                  )}
-                </span>
-              )}
-              {isProtected && <span className="shield-tile-marker">⬡</span>}
-              {isAttackTarget && <span className="attack-slash">╱</span>}
-            </span>
-          );
-        })}
+            return (
+              <span key={key} className={className} aria-hidden="true">
+                {isPlayer && (
+                  <span
+                    className={[
+                      'player-token',
+                      player.isShielding && status === 'active' ? 'player-token--shielding' : '',
+                      isBumping ? 'player-token--bump' : '',
+                      visibleDamage && !visibleDamage.fatal && status === 'active'
+                        ? 'player-token--damaged'
+                        : '',
+                      isInvulnerable && status === 'active' ? 'player-token--invulnerable' : '',
+                      visibleAvoidedDamage && status === 'active' ? 'player-token--avoided' : '',
+                      status === 'defeated' ? 'player-token--defeated' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    {status !== 'defeated' && (
+                      <span className="player-token__facing">{facingArrows[player.facing]}</span>
+                    )}
+                    {player.isShielding && status === 'active' && (
+                      <span className="player-token__shield">◆</span>
+                    )}
+                    {isInvulnerable && status === 'active' && (
+                      <span className="player-token__invulnerable" aria-hidden="true">
+                        ◇
+                      </span>
+                    )}
+                    {status === 'defeated' && (
+                      <span className="player-token__dead-mark" aria-hidden="true">
+                        ×
+                      </span>
+                    )}
+                  </span>
+                )}
+                {isProtected && <span className="shield-tile-marker">⬡</span>}
+                {isAttackTarget && <span className="attack-slash">╱</span>}
+              </span>
+            );
+          })}
+        </div>
       </div>
       <p id="resonant-ruins-grid-instructions" className="grid-hint">
         Resonant Ruins controls: move with WASD or arrow keys, attack with Space, and hold either

@@ -2,11 +2,11 @@ import { Link } from 'react-router-dom';
 
 export function MirrorvaultLogo() {
   return (
-    <Link className="brand" to="/" aria-label="Mirrorvault home">
+    <Link className="brand" to="/" aria-label="Resonant Ruins home">
       <span className="brand__mark" aria-hidden="true">
-        M
+        R
       </span>
-      <span>MIRRORVAULT</span>
+      <span>RESONANT RUINS</span>
     </Link>
   );
 }

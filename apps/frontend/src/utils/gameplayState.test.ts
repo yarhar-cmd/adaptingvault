@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CURRENT_ROOM_LAYOUT } from '../data/roomLayout';
+import { EVALUATION_ROOM_1_ID, EVALUATION_ROOM_2_ID } from '../data/rooms/evaluationRooms';
 import type { CardinalDirection, GridPosition } from '../types/player';
 import {
   INVULNERABILITY_DURATION_MS,
@@ -261,5 +262,63 @@ describe('Resonant Ruins gameplay state', () => {
       },
     );
     expect(getTimeSurvived(defeated.runStats, 99_999)).toBe(42_500);
+  });
+
+  it('commits room progression atomically while preserving health, facing, and run timing', () => {
+    const roomOrder = [
+      EVALUATION_ROOM_1_ID,
+      EVALUATION_ROOM_2_ID,
+      'evaluation-room-03',
+      'evaluation-room-04',
+      'evaluation-room-05',
+    ];
+    let state = gameplayReducer(createGameplayState(6), {
+      type: 'start-run',
+      maximumHealth: 6,
+      startedAt: 1_000,
+      runId: 'progression-run',
+      roomOrder,
+      currentRoomId: EVALUATION_ROOM_1_ID,
+      spawn: { row: 5, column: 1 },
+    });
+    state = { ...state, currentHealth: 4, player: { ...state.player, facing: 'down' } };
+
+    const transitioned = gameplayReducer(state, {
+      type: 'commit-room-transition',
+      destinationRoomId: EVALUATION_ROOM_2_ID,
+      destinationRoomIndex: 1,
+      destinationSpawn: { row: 5, column: 1 },
+      enteredFrom: 'west',
+      exitedAtMs: 2_500,
+      exitChoice: {
+        roomId: EVALUATION_ROOM_1_ID,
+        roomIndex: 1,
+        exitId: 'evaluation-room-01-east-exit',
+        direction: 'east',
+        enteredAtMs: 0,
+        exitedAtMs: 2_500,
+        timeSpentMs: 2_500,
+      },
+      evaluationComplete: false,
+    });
+
+    expect(transitioned).toMatchObject({
+      status: 'active',
+      currentHealth: 4,
+      player: { position: { row: 5, column: 1 }, facing: 'down', isShielding: false },
+      runStats: {
+        runId: 'progression-run',
+        startedAt: 1_000,
+        dungeonRoomsCleared: 0,
+        roomsCleared: 0,
+      },
+      evaluationProgress: {
+        currentRoomId: EVALUATION_ROOM_2_ID,
+        currentRoomIndex: 1,
+        roomEnteredAtMs: 2_500,
+      },
+    });
+    expect(transitioned.evaluationProgress?.exitChoices).toHaveLength(1);
+    expect(transitioned.invulnerability.expiresAt).toBeNull();
   });
 });

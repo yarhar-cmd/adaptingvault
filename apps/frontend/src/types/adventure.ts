@@ -2,8 +2,10 @@ export type GenerationMode = 'adaptive' | 'random';
 export type Challenge = 'relaxed' | 'balanced' | 'demanding';
 export type Playstyle = 'balanced' | 'combat' | 'puzzle' | 'exploration';
 
+import type { ExperiencePreset } from './adaptation';
+
 export interface DungeonConfig {
-  experience: 'new' | 'occasional' | 'veteran';
+  experience: ExperiencePreset;
   challenge: Challenge;
   playstyle: Playstyle;
   mode: GenerationMode;

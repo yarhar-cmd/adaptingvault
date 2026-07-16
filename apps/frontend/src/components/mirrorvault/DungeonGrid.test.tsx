@@ -1,7 +1,10 @@
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AttackAction, PlayerState } from '../../types/player';
+import type { RoomDefinition } from '../../types/rooms';
 import { CURRENT_ROOM_LAYOUT } from '../../data/roomLayout';
+import { evaluationRooms } from '../../data/rooms/evaluationRooms';
+import { coordinateToGridPosition, roomBounds } from '../../utils/roomGeometry';
 import { DungeonGrid } from './DungeonGrid';
 
 const bounds = { rows: 5, columns: 8 } as const;
@@ -30,6 +33,32 @@ function renderGrid(player: PlayerState = basePlayer, attack: AttackAction | nul
       onAttack={() => true}
       onShieldChange={vi.fn()}
     />,
+  );
+}
+
+function dataDrivenGrid(room: RoomDefinition) {
+  return (
+    <DungeonGrid
+      bounds={roomBounds(room)}
+      hazards={(room.hazards ?? []).map(coordinateToGridPosition)}
+      room={room}
+      collapsedEntrance={{ x: 0, y: Math.floor(room.height / 2) }}
+      player={{
+        ...basePlayer,
+        position: { row: Math.floor(room.height / 2), column: 1 },
+      }}
+      status="active"
+      isInvulnerable={false}
+      blockedMove={null}
+      lastAttack={null}
+      lastDamage={null}
+      lastAvoidedDamage={null}
+      announcement="Entered the next room."
+      controlsDisabled={false}
+      onMove={vi.fn()}
+      onAttack={() => true}
+      onShieldChange={vi.fn()}
+    />
   );
 }
 
@@ -259,5 +288,80 @@ describe('Resonant Ruins dungeon grid', () => {
     expect(container.querySelector('.player-token__shield')).toBeNull();
     expect(container.querySelector('.tile--shield-protected')).toBeNull();
     for (const control of screen.getAllByRole('button')) expect(control).toBeDisabled();
+  });
+
+  it('renders variable room geometry, visible walls, an open exit, and a collapsed entrance', () => {
+    const room = evaluationRooms[1]!;
+    const { container } = render(
+      <DungeonGrid
+        bounds={roomBounds(room)}
+        hazards={[]}
+        room={room}
+        collapsedEntrance={{ x: 0, y: 5 }}
+        player={{ ...basePlayer, position: { row: 5, column: 1 } }}
+        status="active"
+        isInvulnerable={false}
+        blockedMove={null}
+        lastAttack={null}
+        lastDamage={null}
+        lastAvoidedDamage={null}
+        announcement="Entered the next room."
+        controlsDisabled={false}
+        onMove={vi.fn()}
+        onAttack={() => true}
+        onShieldChange={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelectorAll('.tile')).toHaveLength(room.width * room.height);
+    expect(container.querySelectorAll('.tile--wall')).toHaveLength(
+      (room.wallTiles?.length ?? 0) - 1,
+    );
+    expect(container.querySelectorAll('.tile--exit-open')).toHaveLength(1);
+    expect(container.querySelectorAll('.tile--collapsed-entrance')).toHaveLength(1);
+    expect(screen.getByRole('application')).toHaveAttribute('data-room-columns', '17');
+    expect(screen.getByRole('application')).toHaveAttribute('data-room-rows', '11');
+    expect(screen.getByRole('application').getAttribute('style')).toContain('--room-columns: 17');
+    expect(screen.getByRole('application').getAttribute('style')).toContain('--room-rows: 11');
+    expect(container.querySelector('.dungeon-grid-viewport')).toHaveAttribute(
+      'data-maximum-columns',
+      '21',
+    );
+    expect(container.querySelector('.dungeon-grid-viewport')).toHaveAttribute(
+      'data-maximum-rows',
+      '15',
+    );
+  });
+
+  it('uses one shared responsive tile scale while room track counts change', () => {
+    const smallRoom = evaluationRooms[0]!;
+    const largeRoom = evaluationRooms[3]!;
+    const { container, rerender } = render(dataDrivenGrid(smallRoom));
+    const smallGrid = screen.getByRole('application');
+    const smallViewport = container.querySelector('.dungeon-grid-viewport');
+    const sharedTileScale = smallViewport?.getAttribute('style');
+
+    expect(smallGrid).toHaveAttribute('data-room-columns', '15');
+    expect(smallGrid).toHaveAttribute('data-room-rows', '11');
+    expect(smallViewport).toHaveAttribute('data-maximum-columns', '21');
+    expect(smallViewport).toHaveAttribute('data-maximum-rows', '15');
+    expect(sharedTileScale).toContain('--dungeon-tile-size: clamp(');
+    expect(container.querySelectorAll('.tile')).toHaveLength(15 * 11);
+
+    rerender(dataDrivenGrid(largeRoom));
+    const largeGrid = screen.getByRole('application');
+    const largeViewport = container.querySelector('.dungeon-grid-viewport');
+
+    expect(largeGrid).toHaveAttribute('data-room-columns', '19');
+    expect(largeGrid).toHaveAttribute('data-room-rows', '11');
+    expect(largeViewport?.getAttribute('style')).toBe(sharedTileScale);
+    expect(container.querySelectorAll('.tile')).toHaveLength(19 * 11);
+    expect(container.querySelector('.tile--wall')).not.toHaveAttribute('style');
+    expect(container.querySelector('.tile--exit-open')).not.toHaveAttribute('style');
+    expect(container.querySelector('.player-token')).not.toHaveAttribute('style');
+
+    rerender(dataDrivenGrid(evaluationRooms[2]!));
+    expect(container.querySelector('.tile--hazard')).not.toHaveAttribute('style');
+    expect(container.querySelector('.tile--hazard')).toHaveClass('tile');
   });
 });

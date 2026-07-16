@@ -1,28 +1,57 @@
 import { Link } from 'react-router-dom';
 
 const signals = [
-  ['A', 'Skill signal', 'Completion time, damage, and retries estimate how much pressure feels manageable.', 'enemy and hazard density'],
-  ['B', 'Playstyle signal', 'Attacks, blocks, and alternate exits reveal combat, defensive, or puzzle tendencies.', 'room-type weighting'],
-  ['C', 'Reward signal', 'Optional treasure choices estimate whether safety or risk feels more satisfying.', 'reward placement'],
+  [
+    'A',
+    'Skill signal',
+    'Completion time, damage, and retries estimate how much pressure feels manageable.',
+    'hazard density and route width',
+  ],
+  [
+    'B',
+    'Playstyle signal',
+    'Attacks, shields, movement, and exits reveal aggressive, defensive, or exploratory tendencies.',
+    'room shape and traversal',
+  ],
+  [
+    'C',
+    'Route signal',
+    'Floor coverage and directional choices estimate whether direct or optional space feels satisfying.',
+    'room size and exits',
+  ],
 ];
 
 export function HomePage() {
   return (
     <>
       <section className="hero">
-        <div className="hero__seal" aria-hidden="true">M</div>
+        <div className="hero__seal" aria-hidden="true">
+          R
+        </div>
         <p className="eyebrow">An adaptive dungeon experiment</p>
         <h1>
           The dungeon is <em>watching how you play.</em>
         </h1>
         <p className="hero__intro">
-          Clear three assessment rooms. Mirrorvault reads your pace, tactics, and appetite for risk—then rebuilds itself around you.
+          Cross five Awakening Chambers. Resonant Ruins reads your pace, tactics, and appetite for
+          risk, then builds an endless dungeon around you.
         </p>
-        <Link className="button button--primary" to="/dungeon">Enter the vault ↓</Link>
+        <Link className="button button--primary" to="/dungeon">
+          Start Run ↓
+        </Link>
         <div className="experiment-summary" aria-label="Experiment summary">
-          <div><strong>03</strong><span>assessment rooms</span></div>
-          <div><strong>03</strong><span>adaptive rooms</span></div>
-          <div><strong>00</strong><span>data sent away</span></div>
+          <div>
+            <strong>05</strong>
+            <span>Awakening Chambers</span>
+          </div>
+          <div>
+            <strong>∞</strong>
+            <span>generated rooms</span>
+          </div>
+          <div>
+            <strong>00</strong>
+            <span>data sent away</span>
+          </div>
         </div>
       </section>
 
@@ -44,8 +73,10 @@ export function HomePage() {
       <section className="method-section">
         <header>
           <p className="section-number">02 / THE METHOD</p>
-          <h2>Same rules. <em>Different dungeon.</em></h2>
-          <p>The prototype changes room composition—not the physics underneath your feet.</p>
+          <h2>
+            Same rules. <em>Different dungeon.</em>
+          </h2>
+          <p>The prototype changes room composition, not the physics underneath your feet.</p>
         </header>
         <div className="signal-grid">
           {signals.map(([letter, title, copy, change]) => (
@@ -60,7 +91,15 @@ export function HomePage() {
         <div className="constants">
           <span>Always constant</span>
           <ul>
-            {['collision physics', 'player speed', 'moveset', 'attack cooldown', 'enemy patterns', 'environment rules'].map((item) => <li key={item}>◇ {item}</li>)}
+            {[
+              'collision physics',
+              'player speed',
+              'moveset',
+              'attack cooldown',
+              'environment rules',
+            ].map((item) => (
+              <li key={item}>◇ {item}</li>
+            ))}
           </ul>
         </div>
       </section>

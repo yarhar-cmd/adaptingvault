@@ -139,6 +139,28 @@ Keep anonymous preferences, selected character, and a bounded recent-run cache i
 
 Do not store access tokens, privileged roles, API secrets, or sensitive profile data in `localStorage`.
 
+The current defeat archive is implemented at the frontend storage boundary in
+`apps/frontend/src/services/runArchive.ts`. It stores one validated, versioned envelope containing
+separate five-record histories and independent best-stat ownership for Warden, Seeker, and Ember.
+The separate `activeRunStorage.ts` boundary persists one validated active or defeated run, including
+health, elapsed active time, evaluation order and analytics, room position, facing, and stable run
+statistics. It excludes held input, transition frames, focus, and temporary action feedback. Neither
+active-run progression nor evaluation analytics are written to the completed-run archive.
+
+### Current data-driven room progression
+
+The Resonant Ruins evaluation sequence is defined under `apps/frontend/src/data/rooms`. Five room
+definitions describe dimensions, explicit coordinate-based floor and wall sets, exits, spawn points,
+and optional hazards. Pure helpers in `roomGeometry.ts` generate rectangular shells and validate
+walkability, boundary crossings, and safe spawns without relying on CSS dimensions.
+
+`roomProgression.ts` creates the fixed-first/fixed-last five-room order with an injected-randomness
+Fisher-Yates shuffle for the three authored middle rooms. `gameplayState.ts` atomically commits a room
+exit, destination spawn, rooms-cleared count, and evaluation timing record. `useRoomTransition.ts`
+owns only the temporary 150 ms fade phases and input lock; the destination gameplay state is already
+committed and persisted so a refresh cannot restore a half-transitioned source room. After the fifth
+evaluation room, the same run continues in a data-defined dungeon placeholder with a disabled exit.
+
 ## Shared contracts
 
 Create `packages/contracts` when the next API response is consumed by the UI. It should contain only serializable TypeScript types and Zod schemas shared by both apps. It must not import React, Express, database libraries, or provider SDKs.
@@ -307,3 +329,28 @@ Use separate staging and production environments. Configure exact allowed origin
 - Custom authentication/password storage
 - A separate admin application without real admin use cases
 - AI-generated mechanics before deterministic rules are validated
+
+## Current adaptive dungeon boundary
+
+The local frontend now separates three persistence lifetimes:
+
+- `playerProfileStorage.ts` owns the versioned experience preset, first-time status, shortcut unlock,
+  long-term adaptive traits, and confidence metadata.
+- `activeRunStorage.ts` owns volatile per-run signals, current-run/effective profiles, the run seed,
+  poke cooldown, authored Chamber analytics, dungeon-only room count, player state, and the exact
+  current generated-room snapshot.
+- `runArchive.ts` owns completed records. Version 2 records store `experiencePreset` and
+  `dungeonRoomsCleared`; legacy records migrate to the explicit `unknown` preset. Bests are
+  partitioned by character and preset.
+
+Generation remains frontend-only and deterministic. Pure utilities map bounded profiles to typed
+parameters, derive a room seed from the run seed/room number/chosen exit/generator version, generate
+rectangle or L-shaped floor regions, place exits and existing rune hazards, validate connectivity and
+safe cardinal paths, retry at most 20 times, and fall back to a known-safe rectangle. Generated rooms
+are intentionally empty apart from runes and exits; enemies, treasure, branches, internal wall
+structures, and backtracking remain outside this milestone.
+
+Development-only inspection is grouped in `DebugTools.tsx` behind `import.meta.env.DEV`. It displays
+raw signals, long-term/current/effective traits, generation inputs and reasons, validation state, and
+poke cooldown. Its advance and override controls use the same normal reducer/generation paths; the
+production build removes the boundary.
