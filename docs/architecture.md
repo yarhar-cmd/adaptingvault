@@ -376,10 +376,14 @@ Held keyboard/pointer input is cleared when the shared gameplay input gate close
 Development-only inspection reuses `DebugTools.tsx` inside the right-side `DebugDrawer`, behind
 `import.meta.env.DEV`. It displays raw signals, long-term/current/effective traits, generation inputs
 and reasons, validation state, poke cooldown, active/archive byte sizes, retained snapshots,
-current-room visited tiles, summarized-room count, and schema versions. Its advance and override
-controls use the same normal reducer/generation paths. It also contains current-room enemy controls
-and the isolated Awakening editor. `import.meta.env.DEV` removes this boundary from production, and
-the post-build production-safety scanner verifies emitted JavaScript.
+current-room visited tiles, summarized-room count, schema versions, and centralized build metadata.
+Its advance and override controls use the same normal reducer/generation paths. It also contains
+current-room enemy controls and the isolated Awakening editor. `apps/frontend/src/config/version.ts`
+is the typed source of truth for game, generator, adaptation-rules, and future telemetry-schema
+versions; persisted storage-envelope versions remain owned by their storage modules because they
+govern migrations.
+`import.meta.env.DEV` removes the Debug boundary from production, and the post-build
+production-safety scanner verifies emitted JavaScript.
 
 The active record, settings, profile, and completed archive are parsed and recovered independently.
 A malformed area resets only that area. A valid preset may be salvaged from a malformed profile,

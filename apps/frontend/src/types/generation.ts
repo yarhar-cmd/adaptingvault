@@ -1,8 +1,8 @@
+import type { GeneratorVersion } from '../config/version';
 import type { AdaptiveProfile, ExperiencePreset } from './adaptation';
 import type { ExitDirection, RoomDefinition, TileCoordinate } from './rooms';
 import type { EnemyCountPlan } from './enemies';
 
-export const GENERATOR_VERSION = 1;
 export const GENERATED_ROOM_SAVE_SCHEMA_VERSION = 1;
 
 export type GeneratedRoomMode = 'reinforce' | 'poke' | 'fallback';
@@ -24,7 +24,7 @@ export interface GeneratedRoomParameters {
 
 export interface GeneratedRoomDetails {
   roomSeed: string;
-  generatorVersion: number;
+  generatorVersion: GeneratorVersion;
   shape: GeneratedRoomShape;
   entranceDirection: ExitDirection;
   hazardPattern: HazardPattern;
@@ -37,7 +37,7 @@ export interface GeneratedRoomDetails {
 
 export interface GeneratedRoomSave {
   schemaVersion: number;
-  generatorVersion: number;
+  generatorVersion: GeneratorVersion;
   runSeed: string;
   roomSeed: string;
   dungeonRoomNumber: number;

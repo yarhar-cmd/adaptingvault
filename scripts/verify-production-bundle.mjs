@@ -8,6 +8,7 @@ const forbiddenDevelopmentText = [
   'Defeat All Enemies',
   'Freeze Enemy AI',
   'Enemy framework',
+  'Version metadata',
 ];
 
 const files = (await readdir(assetsDirectory)).filter((file) => file.endsWith('.js'));

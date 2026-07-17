@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { VERSION_INFO } from '../config/version';
+import { NEUTRAL_ADAPTIVE_PROFILE } from './playerProfileStorage';
 import { createAdaptiveRunState, createBehaviorSignals } from '../utils/adaptiveProfile';
+import { generateDungeonRoom } from '../utils/generatedRoomGenerator';
 import {
   clearActiveRun,
   loadActiveRun,
@@ -239,6 +242,46 @@ describe('Resonant Ruins active-run storage v5', () => {
         },
       }),
     ).toBeNull();
+  });
+  it('migrates the legacy numeric generator version to centralized version metadata', () => {
+    const generated = generateDungeonRoom({
+      runSeed: 'legacy-generator-run',
+      dungeonRoomNumber: 1,
+      chosenExitId: 'legacy-generator-exit',
+      entranceDirection: 'west',
+      experiencePreset: 'seasoned-adventurer',
+      effectiveProfile: NEUTRAL_ADAPTIVE_PROFILE,
+      mode: 'reinforce',
+    });
+    const spawn = generated.roomSnapshot.spawnPoints?.west;
+    expect(spawn).toBeDefined();
+    if (!spawn) throw new Error('Generated fixture has no west spawn.');
+    const base = record();
+    const migrated = parseActiveRunRecord({
+      ...base,
+      playerPosition: spawn,
+      evaluationProgress: {
+        ...base.evaluationProgress,
+        currentRoomIndex: 5,
+        currentRoomId: generated.roomSnapshot.id,
+        evaluationComplete: true,
+      },
+      dungeonProgress: {
+        ...base.dungeonProgress,
+        dungeonRoomNumber: 1,
+        enteredFrom: 'west',
+        currentRoom: {
+          ...generated,
+          generatorVersion: 1,
+          details: { ...generated.details, generatorVersion: 1 },
+        },
+      },
+      enemies: { ...base.enemies, roomId: generated.roomSnapshot.id },
+    });
+    expect(migrated?.dungeonProgress?.currentRoom).toMatchObject({
+      generatorVersion: VERSION_INFO.generatorVersion,
+      details: { generatorVersion: VERSION_INFO.generatorVersion },
+    });
   });
   it('reports corrupt JSON and can clear an active run', () => {
     localStorage.setItem('mirrorvault:active-run:v1', '{');

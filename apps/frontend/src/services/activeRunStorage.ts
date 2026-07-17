@@ -1,3 +1,4 @@
+import { VERSION_INFO } from '../config/version';
 import { getRoomDefinition } from '../data/rooms';
 import { PLACEHOLDER_DUNGEON_ROOM_ID } from '../data/rooms/placeholderDungeonRoom';
 import type {
@@ -365,11 +366,21 @@ function parseRoomSnapshot(value: unknown): RoomDefinition | null {
     return null;
   }
 }
+function parseGeneratorVersion(value: unknown): typeof VERSION_INFO.generatorVersion | null {
+  return value === VERSION_INFO.generatorVersion || value === 1
+    ? VERSION_INFO.generatorVersion
+    : null;
+}
 function parseGeneratedSave(value: unknown): GeneratedRoomSave | null {
+  const generatorVersion = isObject(value) ? parseGeneratorVersion(value.generatorVersion) : null;
+  const detailsGeneratorVersion =
+    isObject(value) && isObject(value.details)
+      ? parseGeneratorVersion(value.details.generatorVersion)
+      : null;
   if (
     !isObject(value) ||
     value.schemaVersion !== 1 ||
-    !isCount(value.generatorVersion) ||
+    generatorVersion !== VERSION_INFO.generatorVersion ||
     typeof value.runSeed !== 'string' ||
     !value.runSeed ||
     typeof value.roomSeed !== 'string' ||
@@ -395,7 +406,7 @@ function parseGeneratedSave(value: unknown): GeneratedRoomSave | null {
       value.adaptiveInput.safePathPreference !== 'narrow') ||
     !isObject(value.details) ||
     value.details.roomSeed !== value.roomSeed ||
-    !isCount(value.details.generatorVersion) ||
+    detailsGeneratorVersion !== generatorVersion ||
     (value.details.shape !== 'rectangle' && value.details.shape !== 'l-shape') ||
     !isExitDirection(value.details.entranceDirection) ||
     (value.details.hazardPattern !== 'scattered' && value.details.hazardPattern !== 'clustered') ||
@@ -416,7 +427,12 @@ function parseGeneratedSave(value: unknown): GeneratedRoomSave | null {
     roomSnapshot.entrance?.direction !== value.details.entranceDirection
   )
     return null;
-  return { ...(value as unknown as GeneratedRoomSave), roomSnapshot };
+  return {
+    ...(value as unknown as GeneratedRoomSave),
+    generatorVersion,
+    roomSnapshot,
+    details: { ...(value.details as unknown as GeneratedRoomSave['details']), generatorVersion },
+  };
 }
 function parseDungeonProgress(value: unknown, runSeed?: string): DungeonProgress | null {
   if (

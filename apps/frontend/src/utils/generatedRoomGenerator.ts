@@ -1,6 +1,6 @@
 import type { ExitDirection, RoomDefinition, RoomExit, TileCoordinate } from '../types/rooms';
+import { VERSION_INFO } from '../config/version';
 import {
-  GENERATOR_VERSION,
   GENERATED_ROOM_SAVE_SCHEMA_VERSION,
   type GeneratedRoomSave,
   type GenerationRequest,
@@ -26,7 +26,7 @@ export function oppositeExitDirection(direction: ExitDirection): ExitDirection {
 export function deriveRoomSeed(
   request: Pick<GenerationRequest, 'runSeed' | 'dungeonRoomNumber' | 'chosenExitId'>,
 ): string {
-  return `${request.runSeed}:${request.dungeonRoomNumber}:${request.chosenExitId}:g${GENERATOR_VERSION}`;
+  return `${request.runSeed}:${request.dungeonRoomNumber}:${request.chosenExitId}:${VERSION_INFO.generatorVersion}`;
 }
 
 function boundaryTile(
@@ -208,7 +208,7 @@ function generateCandidate(request: GenerationRequest, retry: number): Generated
   const validation = validateGeneratedRoom(roomSnapshot);
   return {
     schemaVersion: GENERATED_ROOM_SAVE_SCHEMA_VERSION,
-    generatorVersion: GENERATOR_VERSION,
+    generatorVersion: VERSION_INFO.generatorVersion,
     runSeed: request.runSeed,
     roomSeed,
     dungeonRoomNumber: request.dungeonRoomNumber,
@@ -216,7 +216,7 @@ function generateCandidate(request: GenerationRequest, retry: number): Generated
     roomSnapshot,
     details: {
       roomSeed,
-      generatorVersion: GENERATOR_VERSION,
+      generatorVersion: VERSION_INFO.generatorVersion,
       shape,
       entranceDirection: request.entranceDirection,
       hazardPattern,
@@ -285,7 +285,7 @@ function createFallback(request: GenerationRequest, errors: string[]): Generated
   roomSnapshot.enemySpawns = enemySelection.spawns;
   return {
     schemaVersion: GENERATED_ROOM_SAVE_SCHEMA_VERSION,
-    generatorVersion: GENERATOR_VERSION,
+    generatorVersion: VERSION_INFO.generatorVersion,
     runSeed: request.runSeed,
     roomSeed,
     dungeonRoomNumber: request.dungeonRoomNumber,
@@ -293,7 +293,7 @@ function createFallback(request: GenerationRequest, errors: string[]): Generated
     roomSnapshot,
     details: {
       roomSeed,
-      generatorVersion: GENERATOR_VERSION,
+      generatorVersion: VERSION_INFO.generatorVersion,
       shape: 'rectangle',
       entranceDirection: request.entranceDirection,
       hazardPattern: 'scattered',

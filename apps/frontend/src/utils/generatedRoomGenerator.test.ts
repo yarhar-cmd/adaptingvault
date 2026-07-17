@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { VERSION_INFO } from '../config/version';
 import { NEUTRAL_ADAPTIVE_PROFILE } from '../services/playerProfileStorage';
 import { generateDungeonRoom, oppositeExitDirection } from './generatedRoomGenerator';
 import { hasSafePath, validateGeneratedRoom } from './generatedRoomValidator';
@@ -17,7 +18,13 @@ function request(seed: string, room = 1) {
 
 describe('Resonant Ruins deterministic generated rooms', () => {
   it('reproduces identical inputs and changes deterministic room seed with exit input', () => {
-    expect(generateDungeonRoom(request('same'))).toEqual(generateDungeonRoom(request('same')));
+    const generated = generateDungeonRoom(request('same'));
+    expect(generated).toEqual(generateDungeonRoom(request('same')));
+    expect(generated).toMatchObject({
+      generatorVersion: VERSION_INFO.generatorVersion,
+      details: { generatorVersion: VERSION_INFO.generatorVersion },
+    });
+    expect(generated.roomSeed.endsWith(`:${VERSION_INFO.generatorVersion}`)).toBe(true);
     expect(
       generateDungeonRoom({ ...request('same'), chosenExitId: 'different' }).roomSeed,
     ).not.toBe(generateDungeonRoom(request('same')).roomSeed);

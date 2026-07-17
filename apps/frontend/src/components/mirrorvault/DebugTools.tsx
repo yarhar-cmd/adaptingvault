@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { VERSION_INFO } from '../../config/version';
 import type { AdaptiveProfile, AdaptiveTrait } from '../../types/adaptation';
 import type { GameplayState } from '../../utils/gameplayState';
 import { getAdaptationStrength } from '../../utils/adaptiveProfile';
@@ -52,6 +53,27 @@ export function DebugTools({
   return (
     <div className="debug-tools">
       <div className="debug-tools__grid">
+        <section aria-labelledby="debug-version-title">
+          <h3 id="debug-version-title">Version metadata</h3>
+          <dl>
+            <div>
+              <dt>Game</dt>
+              <dd>{VERSION_INFO.gameVersion}</dd>
+            </div>
+            <div>
+              <dt>Generator</dt>
+              <dd>{VERSION_INFO.generatorVersion}</dd>
+            </div>
+            <div>
+              <dt>Adaptation</dt>
+              <dd>{VERSION_INFO.adaptationVersion}</dd>
+            </div>
+            <div>
+              <dt>Telemetry schema</dt>
+              <dd>{VERSION_INFO.telemetrySchemaVersion}</dd>
+            </div>
+          </dl>
+        </section>
         <section aria-labelledby="debug-signals-title">
           <h3 id="debug-signals-title">Raw signals</h3>
           <dl>
@@ -177,7 +199,7 @@ export function DebugTools({
               </div>
               <div>
                 <dt>Generator</dt>
-                <dd>v{generated.generatorVersion}</dd>
+                <dd>{generated.generatorVersion}</dd>
               </div>
               <div>
                 <dt>Shape / dimensions</dt>

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { VERSION_INFO } from '../../config/version';
 import { NEUTRAL_ADAPTIVE_PROFILE } from '../../services/playerProfileStorage';
 import { createGameplayState } from '../../utils/gameplayState';
 import { DebugTools } from './DebugTools';
@@ -33,6 +34,13 @@ describe('Resonant Ruins development Debug Tools', () => {
     expect(screen.getByText('Raw signals')).toBeVisible();
     expect(screen.getByText('Adaptive profile')).toBeVisible();
     expect(screen.getByText('Generated room')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Version metadata' })).toBeVisible();
+    expect(screen.getByText(VERSION_INFO.gameVersion)).toBeVisible();
+    expect(screen.getByText(VERSION_INFO.generatorVersion)).toBeVisible();
+    expect(screen.getByText(VERSION_INFO.adaptationVersion)).toBeVisible();
+    expect(screen.getByText('Telemetry schema').nextElementSibling).toHaveTextContent(
+      String(VERSION_INFO.telemetrySchemaVersion),
+    );
     const pace = screen.getByRole('slider', { name: /pace/i });
     fireEvent.change(pace, { target: { value: '.8' } });
     expect(temporary).toHaveBeenCalledWith(expect.objectContaining({ pace: 0.8 }));
