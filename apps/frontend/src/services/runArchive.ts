@@ -41,13 +41,25 @@ export interface ArchiveCompletedRunResult {
   issue: RunArchiveIssue | null;
 }
 
-const characterIds: CharacterId[] = ['warden', 'seeker', 'ember'];
-const presetIds: StoredExperiencePreset[] = [
+export const RUN_ARCHIVE_CHARACTER_IDS: CharacterId[] = ['warden', 'seeker', 'ember'];
+export const RUN_ARCHIVE_PRESET_IDS: StoredExperiencePreset[] = [
   'new-delver',
   'seasoned-adventurer',
   'dungeon-veteran',
   'unknown',
 ];
+const characterIds = RUN_ARCHIVE_CHARACTER_IDS;
+const presetIds = RUN_ARCHIVE_PRESET_IDS;
+
+export interface RunArchiveFilters {
+  characterId: CharacterId | 'all';
+  experiencePreset: StoredExperiencePreset | 'all';
+}
+
+export interface FilteredRunArchiveView {
+  recentRuns: CompletedRunRecord[];
+  best: CharacterBestStats;
+}
 function emptyBest(): CharacterBestStats {
   return {
     bestTimeSurvivedMs: 0,
@@ -291,4 +303,43 @@ export function archiveCompletedRun(
   } catch {
     return { data, saved: false, duplicate: false, issue: 'write-failed' };
   }
+}
+
+export function getFilteredRunArchiveView(
+  archive: RunArchiveData,
+  filters: RunArchiveFilters,
+): FilteredRunArchiveView {
+  const characters =
+    filters.characterId === 'all' ? characterIds : ([filters.characterId] as CharacterId[]);
+  const presets =
+    filters.experiencePreset === 'all'
+      ? presetIds
+      : ([filters.experiencePreset] as StoredExperiencePreset[]);
+  const recentRuns = characters
+    .flatMap((characterId) => archive.histories[characterId])
+    .filter(
+      (run) =>
+        filters.experiencePreset === 'all' || run.experiencePreset === filters.experiencePreset,
+    )
+    .sort((left, right) => Date.parse(right.endedAt) - Date.parse(left.endedAt));
+  const best = emptyBest();
+  for (const characterId of characters) {
+    for (const preset of presets) {
+      const partition = archive.bestStats[characterId][preset];
+      if (partition.bestTimeSurvivedMs >= best.bestTimeSurvivedMs) {
+        best.bestTimeSurvivedMs = partition.bestTimeSurvivedMs;
+        best.bestTimeRunId = partition.bestTimeRunId;
+      }
+      if (partition.bestDungeonRoomsCleared >= best.bestDungeonRoomsCleared) {
+        best.bestDungeonRoomsCleared = partition.bestDungeonRoomsCleared;
+        best.bestRoomsCleared = partition.bestDungeonRoomsCleared;
+        best.bestRoomsRunId = partition.bestRoomsRunId;
+      }
+      if (partition.bestEnemiesDefeated >= best.bestEnemiesDefeated) {
+        best.bestEnemiesDefeated = partition.bestEnemiesDefeated;
+        best.bestEnemiesRunId = partition.bestEnemiesRunId;
+      }
+    }
+  }
+  return { recentRuns, best };
 }

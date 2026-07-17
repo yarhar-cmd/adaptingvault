@@ -4,7 +4,9 @@ import { NEUTRAL_ADAPTIVE_PROFILE } from '../services/playerProfileStorage';
 import {
   blendProfiles,
   createBehaviorSignals,
+  createCompletedBehaviorSummary,
   getAdaptationStrength,
+  addSignalsToSummary,
   interpretBehaviorSignals,
   updateCurrentRunProfile,
   updateLongTermProfile,
@@ -36,6 +38,20 @@ describe('Resonant Ruins adaptive profile', () => {
     const wholeProfile = interpretBehaviorSignals(whole);
     const recentProfile = interpretBehaviorSignals(recentSignals);
     expect(current.pace).toBeCloseTo(wholeProfile.pace * 0.3 + recentProfile.pace * 0.7, 5);
+  });
+  it('preserves the adaptive formula when completed rooms are compacted into a numeric summary', () => {
+    const first = { ...createBehaviorSignals(), roomTimesMs: [60_000], movementSteps: 2 };
+    const second = { ...createBehaviorSignals(), roomTimesMs: [5_000], movementSteps: 50 };
+    const raw = {
+      ...createBehaviorSignals(),
+      roomTimesMs: [...first.roomTimesMs, ...second.roomTimesMs],
+      movementSteps: first.movementSteps + second.movementSteps,
+    };
+    const summary = addSignalsToSummary(
+      addSignalsToSummary(createCompletedBehaviorSummary(), first),
+      second,
+    );
+    expect(updateCurrentRunProfile(summary, [])).toEqual(updateCurrentRunProfile(raw, []));
   });
   it('blends long-term values conservatively so one update cannot create an extreme jump', () => {
     const result = updateLongTermProfile(NEUTRAL_ADAPTIVE_PROFILE, {

@@ -62,6 +62,7 @@ export function createRectangularRoom(input: {
   exitEnabled: boolean;
   hazards?: TileCoordinate[];
   exits?: RoomExit[];
+  enemySpawns?: RoomDefinition['enemySpawns'];
 }): RoomDefinition {
   const doorway = { x: input.width - 1, y: Math.floor(input.height / 2) };
   const exit: RoomExit = {
@@ -85,6 +86,7 @@ export function createRectangularRoom(input: {
     exits,
     spawnPoints: { west: { x: 1, y: Math.floor(input.height / 2) } },
     hazards: input.hazards ?? [],
+    enemySpawns: input.enemySpawns ?? [],
   };
 }
 
@@ -100,16 +102,24 @@ export function findExitAt(room: RoomDefinition, coordinate: TileCoordinate): Ro
   return room.exits.find((exit) => coordinatesMatch(exit.tile, coordinate)) ?? null;
 }
 
-export function isExitConditionMet(exit: RoomExit): boolean {
-  return exit.enabled && exit.condition.type === 'always';
+export function isExitConditionMet(exit: RoomExit, livingEnemyCount = 0): boolean {
+  return (
+    exit.enabled &&
+    (exit.condition.type === 'always' ||
+      (exit.condition.type === 'enemies-defeated' && livingEnemyCount === 0))
+  );
 }
 
-export function isWalkableCoordinate(room: RoomDefinition, coordinate: TileCoordinate): boolean {
+export function isWalkableCoordinate(
+  room: RoomDefinition,
+  coordinate: TileCoordinate,
+  livingEnemyCount = 0,
+): boolean {
   if (!isCoordinateInRoom(room, coordinate)) return false;
   if (!getFloorLookup(room).has(coordinateKey(coordinate))) return false;
   if (getWallLookup(room).has(coordinateKey(coordinate))) return false;
   const exit = findExitAt(room, coordinate);
-  return !exit || isExitConditionMet(exit);
+  return !exit || isExitConditionMet(exit, livingEnemyCount);
 }
 
 export function getCollapsedEntrance(
@@ -151,11 +161,25 @@ export function isValidSpawn(
 export function findSafeSpawn(
   room: RoomDefinition,
   enteredFrom: ExitDirection = 'west',
+  nearestTo?: TileCoordinate,
+  isTemporarilyBlocked: (tile: TileCoordinate) => boolean = () => false,
 ): TileCoordinate {
   const configured = room.spawnPoints?.[enteredFrom];
-  if (configured && isValidSpawn(room, configured, enteredFrom)) return configured;
+  if (
+    configured &&
+    isValidSpawn(room, configured, enteredFrom) &&
+    !isTemporarilyBlocked(configured)
+  )
+    return configured;
 
-  const fallback = room.floorTiles.find((tile) => isValidSpawn(room, tile, enteredFrom));
+  const fallback = room.floorTiles
+    .filter((tile) => isValidSpawn(room, tile, enteredFrom) && !isTemporarilyBlocked(tile))
+    .sort((left, right) => {
+      if (!nearestTo) return left.y - right.y || left.x - right.x;
+      const leftDistance = Math.abs(left.x - nearestTo.x) + Math.abs(left.y - nearestTo.y);
+      const rightDistance = Math.abs(right.x - nearestTo.x) + Math.abs(right.y - nearestTo.y);
+      return leftDistance - rightDistance || left.y - right.y || left.x - right.x;
+    })[0];
   if (fallback) return fallback;
   throw new Error(`Room ${room.id} has no safe spawn tile.`);
 }
@@ -174,13 +198,14 @@ export function canCrossRoomExit(
   room: RoomDefinition,
   position: GridPosition,
   direction: CardinalDirection,
+  livingEnemyCount = 0,
 ): RoomExit | null {
   const exitDirection = cardinalToExitDirection(direction);
   return (
     room.exits.find(
       (exit) =>
         exit.direction === exitDirection &&
-        isExitConditionMet(exit) &&
+        isExitConditionMet(exit, livingEnemyCount) &&
         coordinatesMatch(exit.tile, gridPositionToCoordinate(position)),
     ) ?? null
   );

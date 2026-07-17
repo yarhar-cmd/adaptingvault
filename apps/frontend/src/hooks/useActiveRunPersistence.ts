@@ -11,26 +11,31 @@ interface ActiveRunPersistenceOptions {
   gameplay: GameplayState;
   characterId: CharacterId;
   onIssue: (issue: ActiveRunStorageIssue) => void;
+  onSaved?: (savedAt: number) => void;
 }
 
 export function useActiveRunPersistence({
   gameplay,
   characterId,
   onIssue,
+  onSaved,
 }: ActiveRunPersistenceOptions): () => ActiveRunStorageIssue | null {
   const gameplayRef = useRef(gameplay);
   const characterIdRef = useRef(characterId);
   const onIssueRef = useRef(onIssue);
+  const onSavedRef = useRef(onSaved);
   const lastWarningAtRef = useRef(Number.NEGATIVE_INFINITY);
 
   gameplayRef.current = gameplay;
   characterIdRef.current = characterId;
   onIssueRef.current = onIssue;
+  onSavedRef.current = onSaved;
 
   const saveNow = useCallback(() => {
     const record = createActiveRunRecord(gameplayRef.current, characterIdRef.current, Date.now());
     if (!record) return null;
     const issue = saveActiveRun(record);
+    if (!issue) onSavedRef.current?.(Date.now());
     if (issue && Date.now() - lastWarningAtRef.current >= 3_000) {
       lastWarningAtRef.current = Date.now();
       onIssueRef.current(issue);

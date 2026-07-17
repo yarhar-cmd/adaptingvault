@@ -345,24 +345,22 @@ describe('Resonant Ruins character controls', () => {
     expect(onShieldChange.mock.calls).toEqual([[true], [false]]);
   });
 
-  it('rejects attacks while shielding and enforces the 400ms cooldown', () => {
-    const { onAttack } = renderControls();
+  it('rejects attacks while shielding and delegates cooldown acceptance to gameplay state', () => {
+    const { onAttack, result } = renderControls();
 
     dispatchKeyboardEvent('keydown', { code: 'ShiftLeft', modifierShift: true });
     dispatchKeyboardEvent('keydown', { code: 'Space', modifierShift: true });
     expect(onAttack).not.toHaveBeenCalled();
 
     dispatchKeyboardEvent('keyup', { code: 'ShiftLeft', modifierShift: false });
+    onAttack.mockReturnValueOnce(false).mockReturnValueOnce(true);
     dispatchKeyboardEvent('keydown', { code: 'Space', modifierShift: false });
     expect(onAttack).toHaveBeenCalledTimes(1);
-
-    act(() => vi.advanceTimersByTime(399));
-    dispatchKeyboardEvent('keydown', { code: 'Space', modifierShift: false });
-    expect(onAttack).toHaveBeenCalledTimes(1);
-
-    act(() => vi.advanceTimersByTime(1));
-    dispatchKeyboardEvent('keydown', { code: 'Space', modifierShift: false });
+    expect(result.current.attack()).toBe(true);
     expect(onAttack).toHaveBeenCalledTimes(2);
+
+    onAttack.mockReturnValueOnce(false);
+    expect(result.current.attack()).toBe(false);
   });
 
   it('ignores gameplay keydown from interactive and editable elements', () => {

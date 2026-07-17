@@ -8,6 +8,7 @@ export function StatusPanel({
   isInvulnerable,
   isDefeated,
   dungeonRoomsCleared,
+  enemiesRemaining,
 }: {
   room?: number;
   roomLabel?: string;
@@ -18,34 +19,23 @@ export function StatusPanel({
   isInvulnerable: boolean;
   isDefeated: boolean;
   dungeonRoomsCleared?: number;
+  enemiesRemaining?: number;
 }) {
   const healthStatus = isDefeated ? ' You were defeated.' : isInvulnerable ? ' Invulnerable.' : '';
 
   return (
     <aside className="run-status" aria-label="Current run status">
-      <div>
-        <span>Location</span>
+      <div data-status-field="room">
+        <span>Room</span>
         <strong>{roomLabel ?? `${String(room ?? 1).padStart(2, '0')} / 06`}</strong>
       </div>
-      <div>
-        <span>Mode</span>
-        <strong>{mode}</strong>
-      </div>
-      <div>
-        <span>Delver</span>
-        <strong>{character}</strong>
-      </div>
-      {dungeonRoomsCleared !== undefined && (
-        <div>
-          <span>Dungeon Rooms Cleared</span>
-          <strong>{dungeonRoomsCleared}</strong>
-        </div>
-      )}
       <div
         className="health"
+        data-status-field="health"
         aria-label={`${currentHealth} of ${maximumHealth} health remaining.${healthStatus}`}
       >
-        <span className="health__indicators" aria-hidden="true">
+        <span>Health</span>
+        <strong className="health__indicators" aria-hidden="true">
           {Array.from({ length: maximumHealth }, (_, index) => (
             <span
               key={index}
@@ -54,11 +44,33 @@ export function StatusPanel({
               {index < currentHealth ? '◆' : '◇'}
             </span>
           ))}
-        </span>
-        {isInvulnerable && !isDefeated && <span className="health__condition">◇ Invulnerable</span>}
-        {isDefeated && (
-          <span className="health__condition health__condition--defeated">× Defeated</span>
+        </strong>
+        {isInvulnerable && !isDefeated && (
+          <small className="health__condition">◇ Invulnerable</small>
         )}
+        {isDefeated && (
+          <small className="health__condition health__condition--defeated">× Defeated</small>
+        )}
+      </div>
+      <div data-status-field="mode">
+        <span>Mode</span>
+        <strong>{mode}</strong>
+      </div>
+      {dungeonRoomsCleared !== undefined && (
+        <div data-status-field="cleared">
+          <span>Cleared</span>
+          <strong>{dungeonRoomsCleared}</strong>
+        </div>
+      )}
+      {enemiesRemaining !== undefined && (
+        <div data-status-field="enemies" aria-label={`${enemiesRemaining} enemies remaining`}>
+          <span>Enemies Remaining</span>
+          <strong>{enemiesRemaining}</strong>
+        </div>
+      )}
+      <div data-status-field="delver">
+        <span>Delver</span>
+        <strong>{character}</strong>
       </div>
     </aside>
   );

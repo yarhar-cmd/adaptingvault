@@ -1,5 +1,6 @@
 import type { AdaptiveProfile, ExperiencePreset } from './adaptation';
 import type { ExitDirection, RoomDefinition, TileCoordinate } from './rooms';
+import type { EnemyCountPlan } from './enemies';
 
 export const GENERATOR_VERSION = 1;
 export const GENERATED_ROOM_SAVE_SCHEMA_VERSION = 1;
@@ -31,6 +32,7 @@ export interface GeneratedRoomDetails {
   retryCount: number;
   validationErrors: string[];
   reasons: string[];
+  enemyCountPlan?: EnemyCountPlan;
 }
 
 export interface GeneratedRoomSave {

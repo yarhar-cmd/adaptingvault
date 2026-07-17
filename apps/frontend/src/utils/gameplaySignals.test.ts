@@ -96,8 +96,14 @@ describe('Resonant Ruins raw behavior signals', () => {
       evaluationComplete: false,
     };
     const transitioned = gameplayReducer(state, action);
-    expect(transitioned.adaptation.signals.roomTimesMs).toEqual([5_000]);
-    expect(transitioned.adaptation.signals.exitsChosenByDirection.east).toBe(1);
+    expect(transitioned.adaptation.signals.roomTimesMs).toEqual([]);
+    expect(transitioned.adaptation.signals.floorTilesVisited).toEqual([]);
+    expect(transitioned.adaptation.completedSummary).toMatchObject({
+      roomCount: 1,
+      totalRoomTimeMs: 5_000,
+      floorTilesVisitedCount: 0,
+      exitsChosenByDirection: { east: 1 },
+    });
     expect(transitioned.runStats.dungeonRoomsCleared).toBe(0);
   });
 });

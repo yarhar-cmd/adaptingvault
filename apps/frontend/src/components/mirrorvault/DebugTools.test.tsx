@@ -5,7 +5,7 @@ import { createGameplayState } from '../../utils/gameplayState';
 import { DebugTools } from './DebugTools';
 
 describe('Resonant Ruins development Debug Tools', () => {
-  it('groups signals, profiles, generation state, sliders, and explicit controls in one collapsible region', () => {
+  it('groups signals, profiles, generation state, sliders, and explicit controls for the drawer', () => {
     const temporary = vi.fn();
     const clear = vi.fn();
     const apply = vi.fn();
@@ -18,9 +18,18 @@ describe('Resonant Ruins development Debug Tools', () => {
         onTemporaryOverride={temporary}
         onClearOverrides={clear}
         onApplyOverrides={apply}
+        storageDiagnostics={{
+          activeRunBytes: 2048,
+          runArchiveBytes: 1024,
+          detailedSnapshots: 5,
+          currentVisitedTiles: 12,
+          summarizedRooms: 42,
+          activeRunSchemaVersion: 4,
+          archiveSchemaVersion: 2,
+        }}
       />,
     );
-    expect(screen.getByText('Debug Tools').closest('details')).toHaveAttribute('open');
+    expect(document.querySelector('.debug-tools')).toBeVisible();
     expect(screen.getByText('Raw signals')).toBeVisible();
     expect(screen.getByText('Adaptive profile')).toBeVisible();
     expect(screen.getByText('Generated room')).toBeVisible();

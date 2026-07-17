@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { loadActiveRun } from '../services/activeRunStorage';
 
 const signals = [
   [
@@ -22,6 +24,7 @@ const signals = [
 ];
 
 export function HomePage() {
+  const [resumableRun] = useState(() => Boolean(loadActiveRun().record));
   return (
     <>
       <section className="hero">
@@ -36,8 +39,8 @@ export function HomePage() {
           Cross five Awakening Chambers. Resonant Ruins reads your pace, tactics, and appetite for
           risk, then builds an endless dungeon around you.
         </p>
-        <Link className="button button--primary" to="/dungeon">
-          Start Run ↓
+        <Link className="button button--primary" to={resumableRun ? '/dungeon/run' : '/dungeon'}>
+          {resumableRun ? 'Resume Run' : 'Start Run'} ↓
         </Link>
         <div className="experiment-summary" aria-label="Experiment summary">
           <div>

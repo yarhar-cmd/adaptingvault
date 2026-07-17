@@ -21,6 +21,15 @@ export interface RoomExit {
   destination?: { type: 'next-generated-room' };
 }
 
+export interface EnemySpawnDefinition {
+  id: string;
+  type: 'rat';
+  tile: TileCoordinate;
+  order: number;
+  source: 'authored' | 'generated';
+  reason: string;
+}
+
 export interface RoomDefinition {
   id: string;
   phase: 'evaluation' | 'dungeon';
@@ -33,6 +42,7 @@ export interface RoomDefinition {
   hazards?: TileCoordinate[];
   entrance?: { direction: ExitDirection; tile: TileCoordinate };
   shape?: 'rectangle' | 'l-shape';
+  enemySpawns?: EnemySpawnDefinition[];
 }
 
 export interface EvaluationExitChoice {

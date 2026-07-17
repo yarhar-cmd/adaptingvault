@@ -29,16 +29,30 @@ describe('Resonant Ruins deterministic generated rooms', () => {
       ),
     ).toEqual(['south', 'north', 'west', 'east']);
   });
-  it('validates at least 1,000 deterministic seeds with connected floors, legal exits, and hazard-free routes', () => {
+  it('validates 1,200 deterministic seeds across presets, entrances, and modes', () => {
     const shapes = new Set<string>();
+    const entrances = new Set<string>();
+    const hazardPatterns = new Set<string>();
+    const exitCounts = new Set<number>();
+    const ratCounts = new Map<string, Set<number>>();
+    let maximumHazards = 0;
     let sawZeroHazards = false;
-    for (let index = 0; index < 1_000; index += 1) {
-      const generated = generateDungeonRoom(request(`property-${index}`, index + 1));
+    const directions = ['north', 'south', 'east', 'west'] as const;
+    const presets = ['new-delver', 'seasoned-adventurer', 'dungeon-veteran'] as const;
+    for (let index = 0; index < 1_200; index += 1) {
+      const preset = presets[index % presets.length];
+      const generated = generateDungeonRoom({
+        ...request(`property-${index}`, index + 1),
+        entranceDirection: directions[index % directions.length],
+        mode: index % 2 === 0 ? 'reinforce' : 'poke',
+        experiencePreset: preset,
+      });
       const room = generated.roomSnapshot;
       const validation = validateGeneratedRoom(room);
-      expect(validation.errors, `${generated.roomSeed}: ${validation.errors.join(',')}`).toEqual(
-        [],
-      );
+      expect(
+        validation.errors,
+        `${generated.roomSeed}; preset=${preset}; shape=${room.shape}; requested=${generated.details.enemyCountPlan?.requestedCount}; selected=${room.enemySpawns?.length ?? 0}; errors=${validation.errors.join(',')}`,
+      ).toEqual([]);
       expect(room.width).toBeGreaterThanOrEqual(room.shape === 'l-shape' ? 11 : 9);
       expect(room.width).toBeLessThanOrEqual(21);
       expect(room.height).toBeLessThanOrEqual(15);
@@ -50,11 +64,25 @@ describe('Resonant Ruins deterministic generated rooms', () => {
       if (!spawn) throw new Error('Generated room did not include its validated spawn.');
       expect(room.exits.every((exit) => hasSafePath(room, spawn, exit.tile))).toBe(true);
       shapes.add(room.shape!);
+      entrances.add(room.entrance!.direction);
+      hazardPatterns.add(generated.details.hazardPattern);
+      exitCounts.add(room.exits.length);
+      const counts = ratCounts.get(preset) ?? new Set<number>();
+      counts.add(room.enemySpawns?.length ?? 0);
+      ratCounts.set(preset, counts);
+      maximumHazards = Math.max(maximumHazards, room.hazards?.length ?? 0);
       if ((room.hazards?.length ?? 0) === 0) sawZeroHazards = true;
     }
     expect(shapes).toEqual(new Set(['rectangle', 'l-shape']));
+    expect(entrances).toEqual(new Set(directions));
+    expect(hazardPatterns).toEqual(new Set(['scattered', 'clustered']));
+    expect(exitCounts).toEqual(new Set([1, 2, 3]));
     expect(sawZeroHazards).toBe(true);
-  });
+    expect(maximumHazards).toBeGreaterThanOrEqual(4);
+    expect(ratCounts.get('new-delver')).toEqual(new Set([0, 1, 2]));
+    expect(ratCounts.get('seasoned-adventurer')).toEqual(new Set([0, 1, 2, 3]));
+    expect(ratCounts.get('dungeon-veteran')).toEqual(new Set([0, 1, 2, 3, 4]));
+  }, 60_000);
   it('rejects an invalid room and returns a known-safe fallback after exactly twenty forced invalid candidates', () => {
     const generated = generateDungeonRoom(request('invalid-check'));
     expect(validateGeneratedRoom({ ...generated.roomSnapshot, exits: [] })).toMatchObject({

@@ -8,12 +8,8 @@ import { PLACEHOLDER_DUNGEON_ROOM_ID } from '../data/rooms/placeholderDungeonRoo
 export type RandomSource = () => number;
 
 export function createEvaluationRoomOrder(random: RandomSource = Math.random): string[] {
-  const middleRooms = [...MIDDLE_EVALUATION_ROOM_IDS];
-  for (let index = middleRooms.length - 1; index > 0; index -= 1) {
-    const candidate = Math.floor(Math.min(Math.max(random(), 0), 0.999999999) * (index + 1));
-    [middleRooms[index], middleRooms[candidate]] = [middleRooms[candidate]!, middleRooms[index]!];
-  }
-  return [EVALUATION_ROOM_1_ID, ...middleRooms, EVALUATION_ROOM_5_ID];
+  void random;
+  return [EVALUATION_ROOM_1_ID, ...MIDDLE_EVALUATION_ROOM_IDS, EVALUATION_ROOM_5_ID];
 }
 
 export function isValidEvaluationRoomOrder(value: unknown): value is string[] {

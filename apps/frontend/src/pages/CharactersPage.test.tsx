@@ -55,7 +55,10 @@ describe('Resonant Ruins character availability', () => {
 
   it('replaces a saved unavailable selection with the Warden without changing settings', async () => {
     localStorage.setItem('mirrorvault:character', 'seeker');
-    localStorage.setItem('mirrorvault:settings', JSON.stringify({ sound: true }));
+    localStorage.setItem(
+      'mirrorvault:settings',
+      JSON.stringify({ sound: true, reducedMotion: false, highContrast: false }),
+    );
     renderPage();
 
     expect(screen.getByRole('button', { name: /Elian Voss/ })).toHaveAttribute(

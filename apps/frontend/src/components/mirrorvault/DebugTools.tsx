@@ -3,6 +3,9 @@ import type { AdaptiveProfile, AdaptiveTrait } from '../../types/adaptation';
 import type { GameplayState } from '../../utils/gameplayState';
 import { getAdaptationStrength } from '../../utils/adaptiveProfile';
 import { PrimaryButton, SecondaryButton } from '../common/Buttons';
+import { formatByteSize, type StorageDiagnostics } from '../../services/storageDiagnostics';
+import type { EnemyRoomState } from '../../types/enemies';
+import { AwakeningEditor } from './AwakeningEditor';
 
 const traits: AdaptiveTrait[] = ['pace', 'caution', 'aggression', 'hazardTolerance', 'exploration'];
 
@@ -13,6 +16,12 @@ export function DebugTools({
   onTemporaryOverride,
   onClearOverrides,
   onApplyOverrides,
+  storageDiagnostics,
+  enemies,
+  livingEnemyCount = 0,
+  onSpawnRat,
+  onDefeatAllEnemies,
+  onFreezeEnemyAi,
 }: {
   gameplay: GameplayState;
   longTermProfile: AdaptiveProfile;
@@ -20,10 +29,19 @@ export function DebugTools({
   onTemporaryOverride: (profile: AdaptiveProfile) => void;
   onClearOverrides: () => void;
   onApplyOverrides: (profile: AdaptiveProfile) => void;
+  storageDiagnostics: StorageDiagnostics;
+  enemies?: EnemyRoomState;
+  livingEnemyCount?: number;
+  onSpawnRat?: () => void;
+  onDefeatAllEnemies?: () => void;
+  onFreezeEnemyAi?: (frozen: boolean) => void;
 }) {
   const [overrides, setOverrides] = useState<AdaptiveProfile | null>(null);
   const signals = gameplay.adaptation.signals;
   const generated = gameplay.dungeonProgress?.currentRoom;
+  const debugNow = Date.now();
+  const remaining = (deadline: number | null) =>
+    deadline === null ? 0 : Math.max(0, deadline - debugNow);
 
   function setTrait(trait: AdaptiveTrait, value: number) {
     const next = { ...(overrides ?? gameplay.adaptation.effectiveProfile), [trait]: value };
@@ -32,8 +50,7 @@ export function DebugTools({
   }
 
   return (
-    <details className="debug-tools" open>
-      <summary>Debug Tools</summary>
+    <div className="debug-tools">
       <div className="debug-tools__grid">
         <section aria-labelledby="debug-signals-title">
           <h3 id="debug-signals-title">Raw signals</h3>
@@ -77,6 +94,34 @@ export function DebugTools({
             <div>
               <dt>Direction changes</dt>
               <dd>{signals.directionChanges}</dd>
+            </div>
+            <div>
+              <dt>Rats spawned / defeated</dt>
+              <dd>
+                {signals.ratsSpawned} / {signals.ratsDefeated}
+              </dd>
+            </div>
+            <div>
+              <dt>Enemy attacks started / landed</dt>
+              <dd>
+                {signals.enemyAttacksStarted} / {signals.enemyAttacksLanded}
+              </dd>
+            </div>
+            <div>
+              <dt>Enemy attacks missed / blocked</dt>
+              <dd>
+                {signals.enemyAttacksMissed} / {signals.enemyAttacksBlocked}
+              </dd>
+            </div>
+            <div>
+              <dt>Sword swings at enemies / Rats damaged</dt>
+              <dd>
+                {signals.swordSwingsAtEnemies} / {signals.ratsDamaged}
+              </dd>
+            </div>
+            <div>
+              <dt>Combat time</dt>
+              <dd>{signals.combatTimeMs} ms</dd>
             </div>
             <div>
               <dt>Exit directions</dt>
@@ -181,9 +226,132 @@ export function DebugTools({
             <p>Complete the Awakening Chambers or use the unlocked shortcut.</p>
           )}
         </section>
+        <section aria-labelledby="debug-storage-title">
+          <h3 id="debug-storage-title">Storage stability</h3>
+          <dl>
+            <div>
+              <dt>Active-run record size</dt>
+              <dd>{formatByteSize(storageDiagnostics.activeRunBytes)}</dd>
+            </div>
+            <div>
+              <dt>Run archive size</dt>
+              <dd>{formatByteSize(storageDiagnostics.runArchiveBytes)}</dd>
+            </div>
+            <div>
+              <dt>Detailed snapshots retained</dt>
+              <dd>{storageDiagnostics.detailedSnapshots}</dd>
+            </div>
+            <div>
+              <dt>Current-room visited tiles</dt>
+              <dd>{storageDiagnostics.currentVisitedTiles}</dd>
+            </div>
+            <div>
+              <dt>Summarized completed rooms</dt>
+              <dd>{storageDiagnostics.summarizedRooms}</dd>
+            </div>
+            <div>
+              <dt>Active-run schema version</dt>
+              <dd>{storageDiagnostics.activeRunSchemaVersion}</dd>
+            </div>
+            <div>
+              <dt>Archive schema version</dt>
+              <dd>{storageDiagnostics.archiveSchemaVersion}</dd>
+            </div>
+          </dl>
+        </section>
+        {enemies && (
+          <section aria-labelledby="debug-enemies-title">
+            <h3 id="debug-enemies-title">Enemy framework</h3>
+            <dl>
+              <div>
+                <dt>Living / total Rats</dt>
+                <dd>
+                  {livingEnemyCount} / {enemies.rats.length}
+                </dd>
+              </div>
+              <div>
+                <dt>Exits</dt>
+                <dd>{livingEnemyCount > 0 ? 'sealed' : 'open'}</dd>
+              </div>
+              <div>
+                <dt>Enemy AI</dt>
+                <dd>{enemies.aiFrozen ? 'frozen' : 'running'}</dd>
+              </div>
+              <div>
+                <dt>Count / cap</dt>
+                <dd>
+                  {enemies.countPlan
+                    ? `${enemies.countPlan.selectedCount} / ${enemies.countPlan.cap}`
+                    : 'Authored'}
+                </dd>
+              </div>
+              {enemies.countPlan && (
+                <>
+                  <div>
+                    <dt>Selected count pressure</dt>
+                    <dd>{enemies.countPlan.basePressure.toFixed(2)}</dd>
+                  </div>
+                  <div>
+                    <dt>Room-size adjustment</dt>
+                    <dd>{enemies.countPlan.roomSizeAdjustment.toFixed(2)}</dd>
+                  </div>
+                  <div>
+                    <dt>Hazard adjustment</dt>
+                    <dd>{enemies.countPlan.hazardAdjustment.toFixed(2)}</dd>
+                  </div>
+                  <div>
+                    <dt>Adaptation adjustment</dt>
+                    <dd>{enemies.countPlan.adaptationAdjustment.toFixed(2)}</dd>
+                  </div>
+                  <div>
+                    <dt>Preset adjustment</dt>
+                    <dd>{enemies.countPlan.presetAdjustment.toFixed(2)}</dd>
+                  </div>
+                </>
+              )}
+            </dl>
+            <ul className="debug-enemy-list">
+              {enemies.rats.map((rat) => (
+                <li key={rat.id}>
+                  <strong>{rat.id}</strong>
+                  <span>
+                    ({rat.position.x},{rat.position.y}) · {rat.health} HP · {rat.state}
+                  </span>
+                  <span>
+                    target{' '}
+                    {rat.lockedTarget ? `${rat.lockedTarget.x},${rat.lockedTarget.y}` : 'none'} ·
+                    next {rat.nextPathStep ? `${rat.nextPathStep.x},${rat.nextPathStep.y}` : 'none'}
+                  </span>
+                  <span>
+                    move {remaining(rat.nextMovementAt)} ms · telegraph{' '}
+                    {remaining(rat.telegraphEndsAt)} ms · cooldown {remaining(rat.cooldownEndsAt)}{' '}
+                    ms · corpse {remaining(rat.corpseEndsAt)} ms
+                  </span>
+                  <span>
+                    {rat.spawnSource}: {rat.spawnReason}
+                    {rat.authoredSpawnNumber ? ` · Spawn ${rat.authoredSpawnNumber}` : ''} · counted{' '}
+                    {String(rat.defeatCounted)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
+      <AwakeningEditor />
       <div className="debug-tools__actions">
-        <SecondaryButton onClick={onAdvance}>Advance to Next Room</SecondaryButton>
+        <SecondaryButton disabled={livingEnemyCount > 0} onClick={onAdvance}>
+          Advance to Next Room
+        </SecondaryButton>
+        {onSpawnRat && <SecondaryButton onClick={onSpawnRat}>Spawn Rat</SecondaryButton>}
+        {onDefeatAllEnemies && (
+          <SecondaryButton onClick={onDefeatAllEnemies}>Defeat All Enemies</SecondaryButton>
+        )}
+        {onFreezeEnemyAi && (
+          <SecondaryButton onClick={() => onFreezeEnemyAi(!enemies?.aiFrozen)}>
+            {enemies?.aiFrozen ? 'Resume Enemy AI' : 'Freeze Enemy AI'}
+          </SecondaryButton>
+        )}
         <SecondaryButton
           onClick={() => {
             setOverrides(null);
@@ -199,6 +367,6 @@ export function DebugTools({
           Apply Overrides to Saved Profile
         </PrimaryButton>
       </div>
-    </details>
+    </div>
   );
 }

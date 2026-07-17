@@ -14,13 +14,13 @@ import type {
 } from '../../types/player';
 import type { AvoidedDamageEvent, DamageEvent, GameplayStatus } from '../../utils/gameplayState';
 import type { RoomDefinition, TileCoordinate } from '../../types/rooms';
+import type { EnemyRoomState } from '../../types/enemies';
 import { getProtectedTile, positionsMatch } from '../../utils/playerActions';
 import { coordinateKey, findExitAt, getFloorLookup, getWallLookup } from '../../utils/roomGeometry';
 
-const enemies = new Set(['2-3', '3-5']);
+const legacyEnemies = new Set(['2-3', '3-5']);
 const MAX_ROOM_COLUMNS = 21;
 const MAX_ROOM_ROWS = 15;
-const RESPONSIVE_TILE_SIZE = 'clamp(0.45rem, calc(4.7619047619cqw - 0.0476190476rem), 2.5rem)';
 
 export function DungeonGrid({
   bounds,
@@ -40,6 +40,8 @@ export function DungeonGrid({
   onMove,
   onAttack,
   onShieldChange,
+  enemies,
+  exitsSealed = false,
 }: {
   bounds: RoomBounds;
   hazards: readonly { row: number; column: number }[];
@@ -58,11 +60,14 @@ export function DungeonGrid({
   onMove: (direction: CardinalDirection) => void;
   onAttack: () => boolean;
   onShieldChange: (isShielding: boolean) => void;
+  enemies?: EnemyRoomState;
+  exitsSealed?: boolean;
 }) {
   const visibleAttack = useTemporaryFeedback(lastAttack, 180);
   const visibleBlockedMove = useTemporaryFeedback(blockedMove, 160);
   const visibleDamage = useTemporaryFeedback(lastDamage, 180);
   const visibleAvoidedDamage = useTemporaryFeedback(lastAvoidedDamage, 160);
+  const visibleShieldBlock = useTemporaryFeedback(enemies?.lastBlockAt ?? null, 180);
   const protectedTile = status === 'active' ? getProtectedTile(player, bounds) : null;
   const floorLookup = room ? getFloorLookup(room) : null;
   const wallLookup = room ? getWallLookup(room) : null;
@@ -109,7 +114,6 @@ export function DungeonGrid({
         className="dungeon-grid-viewport"
         data-maximum-columns={MAX_ROOM_COLUMNS}
         data-maximum-rows={MAX_ROOM_ROWS}
-        style={{ '--dungeon-tile-size': RESPONSIVE_TILE_SIZE } as CSSProperties}
       >
         <div
           className="dungeon-grid"
@@ -119,6 +123,7 @@ export function DungeonGrid({
           data-game-input-surface
           data-player-status={status}
           data-invulnerable={isInvulnerable}
+          data-controls-disabled={controlsDisabled}
           data-room-columns={bounds.columns}
           data-room-rows={bounds.rows}
           tabIndex={0}
@@ -141,6 +146,9 @@ export function DungeonGrid({
               ? coordinateKey(collapsedEntrance) === coordinateKey(coordinate)
               : false;
             const exit = room ? findExitAt(room, coordinate) : null;
+            const rat = enemies?.rats.find(
+              (candidate) => coordinateKey(candidate.position) === coordinateKey(coordinate),
+            );
             const isWall = Boolean(wallLookup?.has(coordinateKey(coordinate)));
             const isFloor = Boolean(floorLookup?.has(coordinateKey(coordinate)));
             const isProtected = protectedTile ? positionsMatch(position, protectedTile) : false;
@@ -160,7 +168,7 @@ export function DungeonGrid({
                   ? 'exit'
                   : key === '2-1'
                     ? 'treasure'
-                    : enemies.has(key)
+                    : legacyEnemies.has(key)
                       ? 'enemy'
                       : 'empty';
             const kind = room
@@ -168,7 +176,9 @@ export function DungeonGrid({
                 ? 'collapsed-entrance'
                 : exit
                   ? exit.enabled
-                    ? 'exit-open'
+                    ? exitsSealed && exit.condition.type === 'enemies-defeated'
+                      ? 'exit-sealed'
+                      : 'exit-open'
                     : exit.kind === 'shortcut'
                       ? 'exit-sealed'
                       : 'exit-closed'
@@ -195,6 +205,7 @@ export function DungeonGrid({
                   <span
                     className={[
                       'player-token',
+                      `player-token--facing-${player.facing}`,
                       player.isShielding && status === 'active' ? 'player-token--shielding' : '',
                       isBumping ? 'player-token--bump' : '',
                       visibleDamage && !visibleDamage.fatal && status === 'active'
@@ -202,6 +213,7 @@ export function DungeonGrid({
                         : '',
                       isInvulnerable && status === 'active' ? 'player-token--invulnerable' : '',
                       visibleAvoidedDamage && status === 'active' ? 'player-token--avoided' : '',
+                      visibleShieldBlock && status === 'active' ? 'player-token--shield-block' : '',
                       status === 'defeated' ? 'player-token--defeated' : '',
                     ]
                       .filter(Boolean)
@@ -210,8 +222,14 @@ export function DungeonGrid({
                     {status !== 'defeated' && (
                       <span className="player-token__facing">{facingArrows[player.facing]}</span>
                     )}
-                    {player.isShielding && status === 'active' && (
-                      <span className="player-token__shield">◆</span>
+                    {status !== 'defeated' && (
+                      <span
+                        className={`player-token__shield ${
+                          player.isShielding && status === 'active'
+                            ? 'player-token__shield--active'
+                            : 'player-token__shield--carried'
+                        }`}
+                      />
                     )}
                     {isInvulnerable && status === 'active' && (
                       <span className="player-token__invulnerable" aria-hidden="true">
@@ -227,6 +245,20 @@ export function DungeonGrid({
                 )}
                 {isProtected && <span className="shield-tile-marker">⬡</span>}
                 {isAttackTarget && <span className="attack-slash">╱</span>}
+                {rat && (
+                  <span
+                    className={`rat-token rat-token--${rat.state} ${
+                      rat.health === 1 ? 'rat-token--injured' : ''
+                    } ${rat.hitFlashUntil !== null ? 'rat-token--hit' : ''}`}
+                    data-enemy-id={rat.id}
+                    data-enemy-state={rat.state}
+                    data-enemy-health={rat.health}
+                    data-enemy-x={rat.position.x}
+                    data-enemy-y={rat.position.y}
+                  >
+                    {rat.health === 1 && <span className="rat-token__injury" />}
+                  </span>
+                )}
               </span>
             );
           })}

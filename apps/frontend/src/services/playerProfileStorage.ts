@@ -94,14 +94,30 @@ export function parsePlayerProfile(value: unknown): PlayerProfileRecord | null {
 export function loadPlayerProfile(storage?: Storage): {
   record: PlayerProfileRecord | null;
   issue: Exclude<PlayerProfileStorageIssue, 'write-failed'> | null;
+  recoveredExperiencePreset?: ExperiencePreset;
 } {
   try {
     const raw = resolveStorage(storage).getItem(PLAYER_PROFILE_KEY);
     if (raw === null) return { record: null, issue: null };
-    const record = parsePlayerProfile(JSON.parse(raw));
-    return record ? { record, issue: null } : { record: null, issue: 'invalid' };
+    const parsed = JSON.parse(raw) as unknown;
+    const record = parsePlayerProfile(parsed);
+    if (record) return { record, issue: null };
+    const recoveredExperiencePreset =
+      isObject(parsed) && isExperiencePreset(parsed.experiencePreset)
+        ? parsed.experiencePreset
+        : undefined;
+    return { record: null, issue: 'invalid', recoveredExperiencePreset };
   } catch (error) {
     return { record: null, issue: error instanceof SyntaxError ? 'invalid' : 'unavailable' };
+  }
+}
+
+export function clearPlayerProfile(storage?: Storage): PlayerProfileStorageIssue | null {
+  try {
+    resolveStorage(storage).removeItem(PLAYER_PROFILE_KEY);
+    return null;
+  } catch {
+    return 'unavailable';
   }
 }
 

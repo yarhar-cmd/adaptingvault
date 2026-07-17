@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef } from 'react';
 import type { CardinalDirection, MoveTrigger } from '../types/player';
 
 const MOVEMENT_INTERVAL_MS = 200;
-const ATTACK_COOLDOWN_MS = 400;
 
 type ShiftKeyCode = 'ShiftLeft' | 'ShiftRight';
 
@@ -49,7 +48,7 @@ interface CharacterControlsOptions {
   enabled: boolean;
   onMove: (direction: CardinalDirection, trigger: MoveTrigger) => void;
   onTurn: (direction: CardinalDirection, trigger: MoveTrigger) => void;
-  onAttack: () => void;
+  onAttack: () => boolean | void;
   onShieldChange: (isShielding: boolean) => void;
 }
 
@@ -99,7 +98,6 @@ export function useCharacterControls({
   const isShieldingRef = useRef(false);
   const pressOrderRef = useRef(0);
   const movementTimerRef = useRef<number | null>(null);
-  const lastAttackAtRef = useRef(Number.NEGATIVE_INFINITY);
 
   enabledRef.current = enabled;
   onMoveRef.current = onMove;
@@ -186,12 +184,7 @@ export function useCharacterControls({
 
   const attack = useCallback(() => {
     if (!enabledRef.current || isShieldingRef.current) return false;
-    const now = Date.now();
-    if (now - lastAttackAtRef.current < ATTACK_COOLDOWN_MS) return false;
-
-    lastAttackAtRef.current = now;
-    onAttackRef.current();
-    return true;
+    return onAttackRef.current() !== false;
   }, []);
 
   const setPointerShielding = useCallback(
@@ -210,7 +203,6 @@ export function useCharacterControls({
       heldShiftKeysRef.current.clear();
       pointerShieldingRef.current = false;
       pressOrderRef.current = 0;
-      lastAttackAtRef.current = Number.NEGATIVE_INFINITY;
       synchronizeShieldState();
     }
   }, [enabled, stopMovementTimer, synchronizeShieldState]);

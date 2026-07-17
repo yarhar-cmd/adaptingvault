@@ -1,9 +1,9 @@
-import type { RunRecord, UserSettings } from '../types/adventure';
+import type { UserSettings } from '../types/adventure';
 import { getPlayableCharacterId } from '../data/characterAvailability';
 
-const RUNS_KEY = 'mirrorvault:runs';
 const SETTINGS_KEY = 'mirrorvault:settings';
 const CHARACTER_KEY = 'mirrorvault:character';
+export type SettingsStorageIssue = 'invalid' | 'unavailable' | 'write-failed';
 
 export const defaultSettings: UserSettings = {
   sound: false,
@@ -11,38 +11,57 @@ export const defaultSettings: UserSettings = {
   highContrast: false,
 };
 
-export function loadRuns(): RunRecord[] {
-  try {
-    return JSON.parse(localStorage.getItem(RUNS_KEY) ?? '[]') as RunRecord[];
-  } catch {
-    return [];
-  }
-}
-
-export function saveRun(run: RunRecord): void {
-  localStorage.setItem(RUNS_KEY, JSON.stringify([run, ...loadRuns()].slice(0, 20)));
-}
-
-export function clearRuns(): void {
-  localStorage.removeItem(RUNS_KEY);
-}
-
 export function loadSettings(): UserSettings {
+  return loadSettingsResult().settings;
+}
+
+export function loadSettingsResult(storage: Storage = localStorage): {
+  settings: UserSettings;
+  issue: Exclude<SettingsStorageIssue, 'write-failed'> | null;
+} {
   try {
-    return { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') };
-  } catch {
-    return defaultSettings;
+    const raw = storage.getItem(SETTINGS_KEY);
+    if (raw === null) return { settings: defaultSettings, issue: null };
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      Array.isArray(parsed) ||
+      typeof (parsed as UserSettings).sound !== 'boolean' ||
+      typeof (parsed as UserSettings).reducedMotion !== 'boolean' ||
+      typeof (parsed as UserSettings).highContrast !== 'boolean'
+    )
+      return { settings: defaultSettings, issue: 'invalid' };
+    return { settings: parsed as UserSettings, issue: null };
+  } catch (error) {
+    return {
+      settings: defaultSettings,
+      issue: error instanceof SyntaxError ? 'invalid' : 'unavailable',
+    };
   }
 }
 
-export function saveSettings(settings: UserSettings): void {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+export function saveSettings(
+  settings: UserSettings,
+  storage: Storage = localStorage,
+): SettingsStorageIssue | null {
+  try {
+    storage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    return null;
+  } catch {
+    return 'write-failed';
+  }
 }
 
 export function loadCharacter(): string {
   return getPlayableCharacterId(localStorage.getItem(CHARACTER_KEY) ?? 'warden');
 }
 
-export function saveCharacter(characterId: string): void {
-  localStorage.setItem(CHARACTER_KEY, getPlayableCharacterId(characterId));
+export function saveCharacter(characterId: string): SettingsStorageIssue | null {
+  try {
+    localStorage.setItem(CHARACTER_KEY, getPlayableCharacterId(characterId));
+    return null;
+  } catch {
+    return 'write-failed';
+  }
 }

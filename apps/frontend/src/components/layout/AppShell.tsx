@@ -4,10 +4,11 @@ import { useApiHealth } from '../../hooks/useApiHealth';
 import { Footer } from './Footer';
 import { Header } from './Header';
 import { MobileNavigation } from './MobileNavigation';
+import { StorageWarning } from '../mirrorvault/StorageWarning';
 
 export function AppShell() {
   const apiOnline = useApiHealth();
-  const { settings } = useAdventure();
+  const { settings, storageWarning, dismissStorageWarning } = useAdventure();
 
   return (
     <div
@@ -18,6 +19,9 @@ export function AppShell() {
       </a>
       <Header />
       <main id="main-content">
+        {storageWarning && (
+          <StorageWarning message={storageWarning} onDismiss={dismissStorageWarning} />
+        )}
         <Outlet />
       </main>
       <Footer />

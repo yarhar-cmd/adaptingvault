@@ -15,21 +15,20 @@ import {
 } from './roomProgression';
 
 describe('Resonant Ruins evaluation progression', () => {
-  it('keeps rooms one and five fixed while deterministically shuffling the middle three', () => {
-    const values = [0, 0];
-    const order = createEvaluationRoomOrder(() => values.shift() ?? 0);
+  it('uses the fixed Awakening Chamber order for every new run', () => {
+    const order = createEvaluationRoomOrder(() => 0);
 
     expect(order).toEqual([
       EVALUATION_ROOM_1_ID,
+      EVALUATION_ROOM_2_ID,
       EVALUATION_ROOM_3_ID,
       EVALUATION_ROOM_4_ID,
-      EVALUATION_ROOM_2_ID,
       EVALUATION_ROOM_5_ID,
     ]);
     expect(isValidEvaluationRoomOrder(order)).toBe(true);
   });
 
-  it('produces predictable different orders from injected random sources', () => {
+  it('ignores injected randomness without invalidating migration-safe legacy orders', () => {
     const unchanged = createEvaluationRoomOrder(() => 0.999999);
     const reversed = createEvaluationRoomOrder(() => 0);
     expect(unchanged).toEqual([
@@ -39,7 +38,16 @@ describe('Resonant Ruins evaluation progression', () => {
       EVALUATION_ROOM_4_ID,
       EVALUATION_ROOM_5_ID,
     ]);
-    expect(reversed).not.toEqual(unchanged);
+    expect(reversed).toEqual(unchanged);
+    expect(
+      isValidEvaluationRoomOrder([
+        EVALUATION_ROOM_1_ID,
+        EVALUATION_ROOM_3_ID,
+        EVALUATION_ROOM_4_ID,
+        EVALUATION_ROOM_2_ID,
+        EVALUATION_ROOM_5_ID,
+      ]),
+    ).toBe(true);
   });
 
   it('selects the next evaluation room and then the dungeon placeholder', () => {

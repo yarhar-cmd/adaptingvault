@@ -1,6 +1,7 @@
 import type {
   AdaptiveProfile,
   AdaptiveRunState,
+  CompletedBehaviorSummary,
   PlayerBehaviorSignals,
   RoomBehaviorSnapshot,
 } from '../types/adaptation';
@@ -23,6 +24,15 @@ export function createBehaviorSignals(): PlayerBehaviorSignals {
     shieldActivations: 0,
     shieldTimeMs: 0,
     swordSwings: 0,
+    ratsSpawned: 0,
+    enemyAttacksStarted: 0,
+    enemyAttacksLanded: 0,
+    enemyAttacksMissed: 0,
+    enemyAttacksBlocked: 0,
+    ratsDamaged: 0,
+    ratsDefeated: 0,
+    swordSwingsAtEnemies: 0,
+    combatTimeMs: 0,
     floorTilesVisited: [],
     directionChanges: 0,
     exitsChosenByDirection: { north: 0, south: 0, east: 0, west: 0 },
@@ -33,12 +43,39 @@ export function createAdaptiveRunState(longTerm = NEUTRAL_ADAPTIVE_PROFILE): Ada
   const signals = createBehaviorSignals();
   return {
     signals,
+    completedSummary: createCompletedBehaviorSummary(),
     generatedRoomSignals: [],
     currentRunProfile: { ...NEUTRAL_ADAPTIVE_PROFILE },
     effectiveProfile: blendProfiles(longTerm, NEUTRAL_ADAPTIVE_PROFILE, 0.5),
     shieldStartedAt: null,
     lastMeaningfulActionAt: null,
-    currentRoomSignalBaseline: createBehaviorSignals(),
+  };
+}
+
+export function createCompletedBehaviorSummary(): CompletedBehaviorSummary {
+  return {
+    roomCount: 0,
+    totalRoomTimeMs: 0,
+    movementSteps: 0,
+    blockedMovementAttempts: 0,
+    idleTimeMs: 0,
+    damageTaken: 0,
+    runeContacts: 0,
+    shieldActivations: 0,
+    shieldTimeMs: 0,
+    swordSwings: 0,
+    ratsSpawned: 0,
+    enemyAttacksStarted: 0,
+    enemyAttacksLanded: 0,
+    enemyAttacksMissed: 0,
+    enemyAttacksBlocked: 0,
+    ratsDamaged: 0,
+    ratsDefeated: 0,
+    swordSwingsAtEnemies: 0,
+    combatTimeMs: 0,
+    floorTilesVisitedCount: 0,
+    directionChanges: 0,
+    exitsChosenByDirection: { north: 0, south: 0, east: 0, west: 0 },
   };
 }
 
@@ -46,11 +83,15 @@ function normalizedRate(value: number, high: number): number {
   return clamp01(value / Math.max(1, high));
 }
 
-export function interpretBehaviorSignals(signals: PlayerBehaviorSignals): AdaptiveProfile {
-  const roomCount = Math.max(1, signals.roomTimesMs.length);
-  const averageRoomMs = signals.roomTimesMs.reduce((sum, value) => sum + value, 0) / roomCount;
+function interpretBehaviorTotals(
+  signals: Omit<PlayerBehaviorSignals, 'roomTimesMs' | 'floorTilesVisited'>,
+  roomCountValue: number,
+  totalRoomTimeMs: number,
+  visited: number,
+): AdaptiveProfile {
+  const roomCount = Math.max(1, roomCountValue);
+  const averageRoomMs = totalRoomTimeMs / roomCount;
   const steps = Math.max(1, signals.movementSteps);
-  const visited = signals.floorTilesVisited.length;
   const shieldRate = normalizedRate(signals.shieldActivations, roomCount * 3);
   const shieldDuration = normalizedRate(
     signals.shieldTimeMs,
@@ -81,6 +122,65 @@ export function interpretBehaviorSignals(signals: PlayerBehaviorSignals): Adapti
   return { pace, caution, aggression, hazardTolerance, exploration };
 }
 
+export function interpretBehaviorSignals(signals: PlayerBehaviorSignals): AdaptiveProfile {
+  return interpretBehaviorTotals(
+    signals,
+    signals.roomTimesMs.length,
+    signals.roomTimesMs.reduce((sum, value) => sum + value, 0),
+    signals.floorTilesVisited.length,
+  );
+}
+
+export function interpretBehaviorSummary(summary: CompletedBehaviorSummary): AdaptiveProfile {
+  return interpretBehaviorTotals(
+    summary,
+    summary.roomCount,
+    summary.totalRoomTimeMs,
+    summary.floorTilesVisitedCount,
+  );
+}
+
+export function addSignalsToSummary(
+  summary: CompletedBehaviorSummary,
+  signals: PlayerBehaviorSignals,
+): CompletedBehaviorSummary {
+  return {
+    roomCount: summary.roomCount + signals.roomTimesMs.length,
+    totalRoomTimeMs:
+      summary.totalRoomTimeMs + signals.roomTimesMs.reduce((sum, value) => sum + value, 0),
+    movementSteps: summary.movementSteps + signals.movementSteps,
+    blockedMovementAttempts: summary.blockedMovementAttempts + signals.blockedMovementAttempts,
+    idleTimeMs: summary.idleTimeMs + signals.idleTimeMs,
+    damageTaken: summary.damageTaken + signals.damageTaken,
+    runeContacts: summary.runeContacts + signals.runeContacts,
+    shieldActivations: summary.shieldActivations + signals.shieldActivations,
+    shieldTimeMs: summary.shieldTimeMs + signals.shieldTimeMs,
+    swordSwings: summary.swordSwings + signals.swordSwings,
+    ratsSpawned: summary.ratsSpawned + signals.ratsSpawned,
+    enemyAttacksStarted: summary.enemyAttacksStarted + signals.enemyAttacksStarted,
+    enemyAttacksLanded: summary.enemyAttacksLanded + signals.enemyAttacksLanded,
+    enemyAttacksMissed: summary.enemyAttacksMissed + signals.enemyAttacksMissed,
+    enemyAttacksBlocked: summary.enemyAttacksBlocked + signals.enemyAttacksBlocked,
+    ratsDamaged: summary.ratsDamaged + signals.ratsDamaged,
+    ratsDefeated: summary.ratsDefeated + signals.ratsDefeated,
+    swordSwingsAtEnemies: summary.swordSwingsAtEnemies + signals.swordSwingsAtEnemies,
+    combatTimeMs: summary.combatTimeMs + signals.combatTimeMs,
+    floorTilesVisitedCount:
+      summary.floorTilesVisitedCount + new Set(signals.floorTilesVisited).size,
+    directionChanges: summary.directionChanges + signals.directionChanges,
+    exitsChosenByDirection: {
+      north: summary.exitsChosenByDirection.north + signals.exitsChosenByDirection.north,
+      south: summary.exitsChosenByDirection.south + signals.exitsChosenByDirection.south,
+      east: summary.exitsChosenByDirection.east + signals.exitsChosenByDirection.east,
+      west: summary.exitsChosenByDirection.west + signals.exitsChosenByDirection.west,
+    },
+  };
+}
+
+export function summarizeSignals(signals: PlayerBehaviorSignals): CompletedBehaviorSummary {
+  return addSignalsToSummary(createCompletedBehaviorSummary(), signals);
+}
+
 export function blendProfiles(
   left: AdaptiveProfile,
   right: AdaptiveProfile,
@@ -105,6 +205,15 @@ function combineSignals(items: readonly PlayerBehaviorSignals[]): PlayerBehavior
     combined.shieldActivations += signals.shieldActivations;
     combined.shieldTimeMs += signals.shieldTimeMs;
     combined.swordSwings += signals.swordSwings;
+    combined.ratsSpawned += signals.ratsSpawned;
+    combined.enemyAttacksStarted += signals.enemyAttacksStarted;
+    combined.enemyAttacksLanded += signals.enemyAttacksLanded;
+    combined.enemyAttacksMissed += signals.enemyAttacksMissed;
+    combined.enemyAttacksBlocked += signals.enemyAttacksBlocked;
+    combined.ratsDamaged += signals.ratsDamaged;
+    combined.ratsDefeated += signals.ratsDefeated;
+    combined.swordSwingsAtEnemies += signals.swordSwingsAtEnemies;
+    combined.combatTimeMs += signals.combatTimeMs;
     combined.directionChanges += signals.directionChanges;
     for (const tile of signals.floorTilesVisited) visited.add(tile);
     for (const direction of ['north', 'south', 'east', 'west'] as const) {
@@ -116,10 +225,13 @@ function combineSignals(items: readonly PlayerBehaviorSignals[]): PlayerBehavior
 }
 
 export function updateCurrentRunProfile(
-  wholeRunSignals: PlayerBehaviorSignals,
+  wholeRunSignals: PlayerBehaviorSignals | CompletedBehaviorSummary,
   generatedRoomSignals: readonly RoomBehaviorSnapshot[],
 ): AdaptiveProfile {
-  const whole = interpretBehaviorSignals(wholeRunSignals);
+  const whole =
+    'roomCount' in wholeRunSignals
+      ? interpretBehaviorSummary(wholeRunSignals)
+      : interpretBehaviorSignals(wholeRunSignals);
   const recent = interpretBehaviorSignals(
     combineSignals(generatedRoomSignals.slice(-5).map((item) => item.signals)),
   );
@@ -167,6 +279,15 @@ export function subtractSignals(
     shieldActivations: Math.max(0, current.shieldActivations - baseline.shieldActivations),
     shieldTimeMs: Math.max(0, current.shieldTimeMs - baseline.shieldTimeMs),
     swordSwings: Math.max(0, current.swordSwings - baseline.swordSwings),
+    ratsSpawned: Math.max(0, current.ratsSpawned - baseline.ratsSpawned),
+    enemyAttacksStarted: Math.max(0, current.enemyAttacksStarted - baseline.enemyAttacksStarted),
+    enemyAttacksLanded: Math.max(0, current.enemyAttacksLanded - baseline.enemyAttacksLanded),
+    enemyAttacksMissed: Math.max(0, current.enemyAttacksMissed - baseline.enemyAttacksMissed),
+    enemyAttacksBlocked: Math.max(0, current.enemyAttacksBlocked - baseline.enemyAttacksBlocked),
+    ratsDamaged: Math.max(0, current.ratsDamaged - baseline.ratsDamaged),
+    ratsDefeated: Math.max(0, current.ratsDefeated - baseline.ratsDefeated),
+    swordSwingsAtEnemies: Math.max(0, current.swordSwingsAtEnemies - baseline.swordSwingsAtEnemies),
+    combatTimeMs: Math.max(0, current.combatTimeMs - baseline.combatTimeMs),
     floorTilesVisited: current.floorTilesVisited.filter((tile) => !visitedBefore.has(tile)),
     directionChanges: Math.max(0, current.directionChanges - baseline.directionChanges),
     exitsChosenByDirection: {

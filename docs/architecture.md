@@ -1,8 +1,8 @@
-# Recommended Mirrorvault architecture
+# Recommended Resonant Ruins architecture
 
 ## Architecture goal
 
-Keep Mirrorvault understandable as it grows: one frontend application, one API, one shared contract layer, and explicit boundaries around game rules, persistence, authentication, and external providers. The project does not need microservices, event streaming, GraphQL, a complex state library, or a plugin system at its current scale.
+Keep Resonant Ruins understandable as it grows: one frontend application, one API, one shared contract layer, and explicit boundaries around game rules, persistence, authentication, and external providers. The project does not need microservices, event streaming, GraphQL, a complex state library, or a plugin system at its current scale.
 
 ## Recommended near-term structure
 
@@ -154,12 +154,12 @@ definitions describe dimensions, explicit coordinate-based floor and wall sets, 
 and optional hazards. Pure helpers in `roomGeometry.ts` generate rectangular shells and validate
 walkability, boundary crossings, and safe spawns without relying on CSS dimensions.
 
-`roomProgression.ts` creates the fixed-first/fixed-last five-room order with an injected-randomness
-Fisher-Yates shuffle for the three authored middle rooms. `gameplayState.ts` atomically commits a room
+`roomProgression.ts` creates the fixed five-room Awakening order for every new run while accepting
+valid legacy shuffled orders during restore. `gameplayState.ts` atomically commits a room
 exit, destination spawn, rooms-cleared count, and evaluation timing record. `useRoomTransition.ts`
 owns only the temporary 150 ms fade phases and input lock; the destination gameplay state is already
 committed and persisted so a refresh cannot restore a half-transitioned source room. After the fifth
-evaluation room, the same run continues in a data-defined dungeon placeholder with a disabled exit.
+Awakening Chamber, the same run continues through deterministic generated Dungeon Rooms.
 
 ## Shared contracts
 
@@ -338,19 +338,57 @@ The local frontend now separates three persistence lifetimes:
   long-term adaptive traits, and confidence metadata.
 - `activeRunStorage.ts` owns volatile per-run signals, current-run/effective profiles, the run seed,
   poke cooldown, authored Chamber analytics, dungeon-only room count, player state, and the exact
-  current generated-room snapshot.
+  current generated-room snapshot. Schema version 5 stores reducer-owned pause state and safe
+  remaining durations for invulnerability, pending rune damage, and attack cooldown. It bounds
+  exact signal storage to the current room, retains five detailed generated-room snapshots, and
+  compacts older rooms into a fixed numeric summary. Version 3 migrates and compacts on load;
+  versions 1 and 2 migrate as unpaused.
 - `runArchive.ts` owns completed records. Version 2 records store `experiencePreset` and
   `dungeonRoomsCleared`; legacy records migrate to the explicit `unknown` preset. Bests are
   partitioned by character and preset.
+
+Enemy Framework v1 is reducer-owned and frontend-authoritative. `enemySystem.ts` provides
+deterministic cardinal BFS and generated quantity selection; `useEnemyClock.ts` provides one shared
+real-time clock; and `types/enemies.ts` defines the Rat state machine and fixed constants. Active-run
+schema v5 stores exact current-room Rat state and remaining deadlines only. Pausing shifts enemy
+deadlines exactly, living Rats seal `enemies-defeated` exits, and corpses become non-blocking
+immediately. New combat signals remain bounded numeric summaries. Adaptation affects generated Rat
+quantity only, never Rat stats or intelligence.
 
 Generation remains frontend-only and deterministic. Pure utilities map bounded profiles to typed
 parameters, derive a room seed from the run seed/room number/chosen exit/generator version, generate
 rectangle or L-shaped floor regions, place exits and existing rune hazards, validate connectivity and
 safe cardinal paths, retry at most 20 times, and fall back to a known-safe rectangle. Generated rooms
-are intentionally empty apart from runes and exits; enemies, treasure, branches, internal wall
+may contain deterministic safe Rat spawns and rune hazards; treasure, branches, internal wall
 structures, and backtracking remain outside this milestone.
 
-Development-only inspection is grouped in `DebugTools.tsx` behind `import.meta.env.DEV`. It displays
-raw signals, long-term/current/effective traits, generation inputs and reasons, validation state, and
-poke cooldown. Its advance and override controls use the same normal reducer/generation paths; the
-production build removes the boundary.
+The dungeon has two route boundaries. `/dungeon` uses the normal website shell and contains only
+experience selection and run setup. `/dungeon/run` uses `GameShell` without the website header,
+footer, narrative, or page padding. `DungeonRunPage` composes the view, and `useRunController` is the
+single gameplay authority for reducer state, restoration, transitions, generation, adaptation,
+persistence, archives, pause timing, and run navigation.
+
+Pause is reducer-owned rather than a page boolean. Survival time subtracts accumulated and current
+pause duration. Resume shifts absolute gameplay deadlines by the pause duration, and persistence
+stores remaining durations so refresh and time spent in Settings or Main Menu cannot consume them.
+Held keyboard/pointer input is cleared when the shared gameplay input gate closes.
+
+Development-only inspection reuses `DebugTools.tsx` inside the right-side `DebugDrawer`, behind
+`import.meta.env.DEV`. It displays raw signals, long-term/current/effective traits, generation inputs
+and reasons, validation state, poke cooldown, active/archive byte sizes, retained snapshots,
+current-room visited tiles, summarized-room count, and schema versions. Its advance and override
+controls use the same normal reducer/generation paths. It also contains current-room enemy controls
+and the isolated Awakening editor. `import.meta.env.DEV` removes this boundary from production, and
+the post-build production-safety scanner verifies emitted JavaScript.
+
+The active record, settings, profile, and completed archive are parsed and recovered independently.
+A malformed area resets only that area. A valid preset may be salvaged from a malformed profile,
+but adaptive traits and shortcut unlocks return to safe defaults. Invalid player positions are
+repaired to the nearest safe spawn; malformed room geometry is rejected. Storage write failures do
+not stop the in-memory run and show a rate-limited warning that refresh may lose progress.
+
+The deterministic generator validator checks terrain bounds and duplicates, directional boundary
+openings, exit structure and spacing, spawn safety, hazard separation, connected floors, complete
+perimeter walls, and hazard-free spawn-to-exit paths. Unit tests cover 5,000 varied deterministic
+seeds. The root Playwright configuration adds a Chromium-only smoke suite for start, pause/refresh,
+Main Menu resume, restart, defeat/archive, maximum room layout, and stored-position repair.

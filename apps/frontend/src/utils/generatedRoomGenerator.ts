@@ -10,6 +10,7 @@ import { coordinateKey, generatePerimeterWallTiles } from './roomGeometry';
 import { createGeneratedRoomParameters } from './generatedRoomParameters';
 import { validateGeneratedRoom } from './generatedRoomValidator';
 import { createSeededRandom, randomInteger, shuffleSeeded, weightedChoice } from './seededRandom';
+import { selectGeneratedRatSpawns } from './enemySystem';
 
 const opposite: Record<ExitDirection, ExitDirection> = {
   north: 'south',
@@ -146,7 +147,7 @@ function generateCandidate(request: GenerationRequest, retry: number): Generated
     direction: choice.direction,
     tile: choice.tile,
     kind: 'standard',
-    condition: { type: 'always' },
+    condition: { type: 'enemies-defeated' },
     enabled: true,
     destination: { type: 'next-generated-room' },
   }));
@@ -196,6 +197,14 @@ function generateCandidate(request: GenerationRequest, retry: number): Generated
     spawnPoints: { [request.entranceDirection]: spawn },
     hazards,
   };
+  const enemySelection = selectGeneratedRatSpawns(roomSnapshot, {
+    roomSeed,
+    preset: request.experiencePreset,
+    profile: request.effectiveProfile,
+    mode: request.mode,
+    playerSpawn: spawn,
+  });
+  roomSnapshot.enemySpawns = enemySelection.spawns;
   const validation = validateGeneratedRoom(roomSnapshot);
   return {
     schemaVersion: GENERATED_ROOM_SAVE_SCHEMA_VERSION,
@@ -215,6 +224,7 @@ function generateCandidate(request: GenerationRequest, retry: number): Generated
       retryCount: retry,
       validationErrors: validation.errors,
       reasons,
+      enemyCountPlan: enemySelection.plan,
     },
   };
 }
@@ -243,7 +253,7 @@ function createFallback(request: GenerationRequest, errors: string[]): Generated
     direction: exitDirection,
     tile: exitTile,
     kind: 'standard',
-    condition: { type: 'always' },
+    condition: { type: 'enemies-defeated' },
     enabled: true,
     destination: { type: 'next-generated-room' },
   };
@@ -252,6 +262,27 @@ function createFallback(request: GenerationRequest, errors: string[]): Generated
     request.mode,
     request.experiencePreset,
   );
+  const roomSnapshot: RoomDefinition = {
+    id: `generated-dungeon-room-${request.dungeonRoomNumber}`,
+    phase: 'dungeon',
+    width,
+    height,
+    shape: 'rectangle',
+    floorTiles,
+    wallTiles: generatePerimeterWallTiles(width, height, [entranceTile, exitTile]),
+    exits: [exit],
+    entrance: { direction: request.entranceDirection, tile: entranceTile },
+    spawnPoints: { [request.entranceDirection]: spawn },
+    hazards: [],
+  };
+  const enemySelection = selectGeneratedRatSpawns(roomSnapshot, {
+    roomSeed,
+    preset: request.experiencePreset,
+    profile: request.effectiveProfile,
+    mode: request.mode,
+    playerSpawn: spawn,
+  });
+  roomSnapshot.enemySpawns = enemySelection.spawns;
   return {
     schemaVersion: GENERATED_ROOM_SAVE_SCHEMA_VERSION,
     generatorVersion: GENERATOR_VERSION,
@@ -259,19 +290,7 @@ function createFallback(request: GenerationRequest, errors: string[]): Generated
     roomSeed,
     dungeonRoomNumber: request.dungeonRoomNumber,
     adaptiveInput: parameters,
-    roomSnapshot: {
-      id: `generated-dungeon-room-${request.dungeonRoomNumber}`,
-      phase: 'dungeon',
-      width,
-      height,
-      shape: 'rectangle',
-      floorTiles,
-      wallTiles: generatePerimeterWallTiles(width, height, [entranceTile, exitTile]),
-      exits: [exit],
-      entrance: { direction: request.entranceDirection, tile: entranceTile },
-      spawnPoints: { [request.entranceDirection]: spawn },
-      hazards: [],
-    },
+    roomSnapshot,
     details: {
       roomSeed,
       generatorVersion: GENERATOR_VERSION,
@@ -282,6 +301,7 @@ function createFallback(request: GenerationRequest, errors: string[]): Generated
       retryCount: 20,
       validationErrors: errors,
       reasons: [...reasons, 'Known-safe fallback after 20 retries'],
+      enemyCountPlan: enemySelection.plan,
     },
   };
 }

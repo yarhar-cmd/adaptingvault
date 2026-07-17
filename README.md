@@ -11,6 +11,7 @@ This repository is intentionally a functional prototype. Story scenes and adapta
 - [Phased feature roadmap](docs/ROADMAP.md)
 - [Recommended architecture](docs/ARCHITECTURE.md)
 - [Prioritized checkbox backlog](docs/BACKLOG.md)
+- [Enemy Framework v1](docs/ENEMY_FRAMEWORK.md)
 - [Earlier future-backend notes](docs/future-backend-plan.md)
 
 ## Technology
@@ -21,6 +22,7 @@ This repository is intentionally a functional prototype. Story scenes and adapta
 - ESLint and Prettier for code quality
 - browser `localStorage` for selected character, preferences, experience preset, adaptive profile,
   shortcut unlock, a validated active run snapshot, and preset-partitioned run records and bests
+- Playwright for a small Chromium-only critical-flow suite
 
 ## Folder structure
 
@@ -31,7 +33,7 @@ mirrorvault-local/
 │   │   ├── public/
 │   │   ├── src/
 │   │   │   ├── assets/        # Future local images, icons, and fonts
-│   │   │   ├── components/    # Common, layout, and Mirrorvault components
+│   │   │   ├── components/    # Common, layout, and domain components
 │   │   │   ├── context/       # Shared character and settings state
 │   │   │   ├── hooks/         # Context and API-health hooks
 │   │   │   ├── pages/         # Route-level screens
@@ -99,7 +101,8 @@ npm run dev:backend
 ## Routes
 
 - `/` — the original landing experience and methodology
-- `/dungeon` — setup, playable grid, story choices, and run reset
+- `/dungeon` — first-time experience choice and minimal run setup
+- `/dungeon/run` — dedicated full-viewport Awakening Chamber and generated-room gameplay
 - `/characters` — local character selection
 - `/history` — completed browser-local runs
 - `/about` — adaptation explanation and prototype boundaries
@@ -111,18 +114,26 @@ React Router owns client-side navigation. To add a page, create a component in `
 
 ## Components and state
 
-Layout components define the shell, header, footer, desktop links, and mobile links. Common components define panels, buttons, and feedback states. Mirrorvault components hold domain-specific controls such as the intake form, dungeon grid, story choices, and run status.
+Layout components define the shell, header, footer, desktop links, and mobile links. Common components define panels, buttons, and feedback states. The existing `components/mirrorvault` folder holds domain-specific controls such as the intake form, dungeon grid, story choices, and run status; its internal name remains unchanged for now to avoid a broad rename.
 
 To add a component, create a focused `.tsx` file under the best matching component folder. Accept data and callbacks as props, keep page-specific state in the page, and move shared state into context or a dedicated hook only when multiple routes need it.
 
-The `AdventureProvider` shares the selected character, settings, and versioned local player profile. The dungeon page owns live
-gameplay state and writes a validated, versioned snapshot at meaningful checkpoints so an active or
-defeated run can survive a browser refresh without counting closed-tab time.
+The `AdventureProvider` shares the selected character, settings, and versioned local player profile.
+`DungeonEntryPage` owns setup and creates the initial saved run. `DungeonRunPage` renders the
+dedicated game shell, while `useRunController` owns the single live gameplay reducer, generation,
+transitions, pause/resume actions, persistence, archive effects, and run navigation. Validated
+snapshots allow active, defeated, and paused runs to survive refresh without counting closed-tab or
+paused time.
 
 The first run uses `Experience Choice → Run Setup → Delve`. Returning runs begin at Run Setup,
 while Restart Run immediately reuses the current preset and settings. Authored room IDs remain
 `evaluation-room-*` internally for migration safety, but their player-facing labels are Awakening
 Chambers. Completing all five unlocks Chamber 1's persistent generated-dungeon shortcut.
+
+New runs use a fixed five-Chamber order. Chambers 4 and 5 contain ordered authored Rat spawns, with
+the first one, two, or three enabled by experience preset. The reducer owns deterministic Rat BFS,
+telegraphed melee attacks, directional shield resolution, two-hit sword damage, corpse timing, and
+enemy-sealed exits. See [Enemy Framework v1](docs/ENEMY_FRAMEWORK.md) for constants and rules.
 
 Generated rooms are derived from a run seed, room number, chosen exit, and generator version. The
 generator supports rectangles and L-shapes, one to three exits, red-rune hazards, deterministic
@@ -149,14 +160,22 @@ The browser stores only prototype data under these keys:
 
 - `mirrorvault:character`
 - `mirrorvault:settings`
-- `mirrorvault:runs`
-- `mirrorvault:run-archive:v1`
+- `mirrorvault:player-profile:v1`
+- `mirrorvault:run-archive:v1` (version 2 envelope)
 - `mirrorvault:active-run:v1`
 
+Development builds may also use `mirrorvault:awakening-editor-drafts:v1`. It is isolated from normal
+gameplay storage and absent from production output.
+
 The active-run record contains the run ID, character, health, elapsed active time, room order,
-current room and tile, facing, stable statistics, and evaluation analytics. Temporary input, fade,
-damage-feedback, and focus state are intentionally excluded. Main Menu discards the active record;
-Restart replaces it. Clear the run archive on `/history`, or clear site data in browser settings to
+current room and tile, facing, stable statistics, Awakening analytics, authoritative pause state,
+and remaining invulnerability, pending-rune, and attack-cooldown durations. Temporary held input,
+fade, visual feedback, and focus state remain excluded. Active-run Pause-menu navigation to Settings
+or Main Menu preserves the record; Game Over Main Menu intentionally clears it. Restart replaces it.
+The v5 active-run schema also keeps exact Rat state and remaining enemy deadlines for the current
+room only. It keeps exact visited tiles only for the current room, five detailed recent
+room snapshots, and a fixed-size numeric summary for older rooms. The completed archive keeps five
+recent defeats per character plus fixed-size best statistics. Clear site data in browser settings to
 reset everything.
 
 ## API routes and adding another route
@@ -184,11 +203,17 @@ Environment variables belong in app-specific `.env` files and are documented in 
 
 ```powershell
 npm run test
+npm run test:e2e
 npm run lint
 npm run typecheck
 npm run build
+npm run verify:production-safety
 npm run format
 ```
+
+The end-to-end suite uses the installed Chrome channel as its Chromium runtime. To use Playwright's
+bundled Chromium instead, remove `channel: 'chrome'` from `playwright.config.ts` and install it with
+`npx playwright install chromium`.
 
 The production frontend output is under `apps/frontend/dist`; compiled backend output is under `apps/backend/dist`.
 

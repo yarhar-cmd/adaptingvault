@@ -3,6 +3,7 @@ import { CURRENT_ROOM_LAYOUT } from '../data/roomLayout';
 import { EVALUATION_ROOM_1_ID, EVALUATION_ROOM_2_ID } from '../data/rooms/evaluationRooms';
 import type { CardinalDirection, GridPosition } from '../types/player';
 import {
+  ATTACK_COOLDOWN_MS,
   INVULNERABILITY_DURATION_MS,
   applyPlayerDamage,
   createGameplayState,
@@ -262,6 +263,85 @@ describe('Resonant Ruins gameplay state', () => {
       },
     );
     expect(getTimeSurvived(defeated.runStats, 99_999)).toBe(42_500);
+  });
+
+  it('uses one reducer-owned pause gate for movement, attacks, shielding, and survival time', () => {
+    const active = startRun(6, 1_000);
+    const paused = gameplayReducer(active, {
+      type: 'pause-run',
+      timestamp: 2_000,
+      reason: 'pause-menu',
+    });
+    const moved = move(paused, 'right', 8_000);
+    const attacked = gameplayReducer(paused, {
+      type: 'attack',
+      id: 'paused-attack',
+      timestamp: 8_000,
+    });
+    const shielded = gameplayReducer(paused, {
+      type: 'shield',
+      isShielding: true,
+      timestamp: 8_000,
+    });
+
+    expect(paused.pause).toEqual({
+      isPaused: true,
+      reason: 'pause-menu',
+      pausedAt: 2_000,
+      totalPausedMs: 0,
+    });
+    expect(getTimeSurvived(paused.runStats, 8_000, paused.pause)).toBe(1_000);
+    expect(moved).toBe(paused);
+    expect(attacked).toBe(paused);
+    expect(shielded).toBe(paused);
+  });
+
+  it('preserves remaining invulnerability, pending damage, and attack cooldown across pause', () => {
+    let active = startRun(6, 1_000);
+    active = {
+      ...active,
+      invulnerability: {
+        expiresAt: 2_500,
+        pendingRune: active.player.position,
+      },
+    };
+    active = gameplayReducer(active, {
+      type: 'attack',
+      id: 'attack-before-pause',
+      timestamp: 1_900,
+    });
+    const paused = gameplayReducer(active, {
+      type: 'pause-run',
+      timestamp: 2_000,
+      reason: 'pause-menu',
+    });
+    const ignoredExpiry = gameplayReducer(paused, {
+      type: 'invulnerability-expired',
+      runId: 'run-1',
+      expectedExpiresAt: 2_500,
+      timestamp: 9_000,
+    });
+    const resumed = gameplayReducer(paused, { type: 'resume-run', timestamp: 7_000 });
+
+    expect(ignoredExpiry).toBe(paused);
+    expect(resumed.pause).toEqual({ isPaused: false, totalPausedMs: 5_000 });
+    expect(resumed.invulnerability).toEqual({
+      expiresAt: 7_500,
+      pendingRune: active.player.position,
+    });
+    expect(resumed.attackCooldown.readyAt).toBe(1_900 + ATTACK_COOLDOWN_MS + 5_000);
+    expect(getTimeSurvived(resumed.runStats, 7_000, resumed.pause)).toBe(1_000);
+  });
+
+  it('enforces attack cooldown in authoritative gameplay state', () => {
+    const active = startRun();
+    const first = gameplayReducer(active, { type: 'attack', id: 'first', timestamp: 2_000 });
+    const rejected = gameplayReducer(first, { type: 'attack', id: 'too-soon', timestamp: 2_399 });
+    const ready = gameplayReducer(first, { type: 'attack', id: 'ready', timestamp: 2_400 });
+
+    expect(first.attackCooldown.readyAt).toBe(2_000 + ATTACK_COOLDOWN_MS);
+    expect(rejected).toBe(first);
+    expect(ready.lastAttack?.id).toBe('ready');
   });
 
   it('commits room progression atomically while preserving health, facing, and run timing', () => {

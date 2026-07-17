@@ -9,6 +9,8 @@ export interface AdventureContextValue {
   setSettings: (value: UserSettings) => void;
   playerProfile: PlayerProfileRecord | null;
   setPlayerProfile: (value: PlayerProfileRecord | null) => void;
+  storageWarning: string;
+  dismissStorageWarning: () => void;
 }
 
 export const AdventureContext = createContext<AdventureContextValue | null>(null);

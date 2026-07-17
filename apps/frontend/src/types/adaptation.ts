@@ -54,6 +54,15 @@ export interface PlayerBehaviorSignals {
   shieldActivations: number;
   shieldTimeMs: number;
   swordSwings: number;
+  ratsSpawned: number;
+  enemyAttacksStarted: number;
+  enemyAttacksLanded: number;
+  enemyAttacksMissed: number;
+  enemyAttacksBlocked: number;
+  ratsDamaged: number;
+  ratsDefeated: number;
+  swordSwingsAtEnemies: number;
+  combatTimeMs: number;
   floorTilesVisited: string[];
   directionChanges: number;
   exitsChosenByDirection: Record<ExitDirection, number>;
@@ -64,14 +73,39 @@ export interface RoomBehaviorSnapshot {
   signals: PlayerBehaviorSignals;
 }
 
+export interface CompletedBehaviorSummary {
+  roomCount: number;
+  totalRoomTimeMs: number;
+  movementSteps: number;
+  blockedMovementAttempts: number;
+  idleTimeMs: number;
+  damageTaken: number;
+  runeContacts: number;
+  shieldActivations: number;
+  shieldTimeMs: number;
+  swordSwings: number;
+  ratsSpawned: number;
+  enemyAttacksStarted: number;
+  enemyAttacksLanded: number;
+  enemyAttacksMissed: number;
+  enemyAttacksBlocked: number;
+  ratsDamaged: number;
+  ratsDefeated: number;
+  swordSwingsAtEnemies: number;
+  combatTimeMs: number;
+  floorTilesVisitedCount: number;
+  directionChanges: number;
+  exitsChosenByDirection: Record<ExitDirection, number>;
+}
+
 export interface AdaptiveRunState {
   signals: PlayerBehaviorSignals;
+  completedSummary: CompletedBehaviorSummary;
   generatedRoomSignals: RoomBehaviorSnapshot[];
   currentRunProfile: AdaptiveProfile;
   effectiveProfile: AdaptiveProfile;
   shieldStartedAt: number | null;
   lastMeaningfulActionAt: number | null;
-  currentRoomSignalBaseline: PlayerBehaviorSignals;
 }
 
 export interface PlayerProfileMetadata {

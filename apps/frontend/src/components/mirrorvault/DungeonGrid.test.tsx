@@ -339,23 +339,22 @@ describe('Resonant Ruins dungeon grid', () => {
     const { container, rerender } = render(dataDrivenGrid(smallRoom));
     const smallGrid = screen.getByRole('application');
     const smallViewport = container.querySelector('.dungeon-grid-viewport');
-    const sharedTileScale = smallViewport?.getAttribute('style');
 
     expect(smallGrid).toHaveAttribute('data-room-columns', '15');
     expect(smallGrid).toHaveAttribute('data-room-rows', '11');
     expect(smallViewport).toHaveAttribute('data-maximum-columns', '21');
     expect(smallViewport).toHaveAttribute('data-maximum-rows', '15');
-    expect(sharedTileScale).toContain('--dungeon-tile-size: clamp(');
+    expect(smallViewport).not.toHaveAttribute('style');
     expect(container.querySelectorAll('.tile')).toHaveLength(15 * 11);
 
     rerender(dataDrivenGrid(largeRoom));
     const largeGrid = screen.getByRole('application');
     const largeViewport = container.querySelector('.dungeon-grid-viewport');
 
-    expect(largeGrid).toHaveAttribute('data-room-columns', '19');
+    expect(largeGrid).toHaveAttribute('data-room-columns', '17');
     expect(largeGrid).toHaveAttribute('data-room-rows', '11');
-    expect(largeViewport?.getAttribute('style')).toBe(sharedTileScale);
-    expect(container.querySelectorAll('.tile')).toHaveLength(19 * 11);
+    expect(largeViewport).not.toHaveAttribute('style');
+    expect(container.querySelectorAll('.tile')).toHaveLength(17 * 11);
     expect(container.querySelector('.tile--wall')).not.toHaveAttribute('style');
     expect(container.querySelector('.tile--exit-open')).not.toHaveAttribute('style');
     expect(container.querySelector('.player-token')).not.toHaveAttribute('style');
