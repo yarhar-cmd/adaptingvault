@@ -10,7 +10,8 @@ import { createRatFromSpawn } from '../apps/frontend/src/utils/enemySystem';
 import { coordinateToGridPosition, findSafeSpawn } from '../apps/frontend/src/utils/roomGeometry';
 import { createFreshRun } from '../apps/frontend/src/utils/runLifecycle';
 import { evaluationRooms } from '../apps/frontend/src/data/rooms/evaluationRooms';
-import type { EnemyRoomState } from '../apps/frontend/src/types/enemies';
+import { createCombatMetrics, type EnemyRoomState } from '../apps/frontend/src/types/enemies';
+import { RAT_COMBAT_CONFIG } from '../apps/frontend/src/config/combat';
 import type { TileCoordinate } from '../apps/frontend/src/types/rooms';
 
 const ACTIVE_RUN_KEY = 'mirrorvault:active-run:v1';
@@ -60,7 +61,10 @@ function combatRecord({
     aiFrozen: false,
     countPlan: null,
     lastBlockAt: null,
+    lastBlockKind: null,
     lastTickAt: now,
+    awarenessGraceEndsAt: now + RAT_COMBAT_CONFIG.roomEntryAwarenessGraceMs,
+    combatMetrics: createCombatMetrics(),
   };
   let gameplay = gameplayReducer(
     createFreshRun({
@@ -83,7 +87,11 @@ function combatRecord({
     },
   );
   if (telegraph)
-    gameplay = gameplayReducer(gameplay, { type: 'enemy-tick', timestamp: now + 1, room });
+    gameplay = gameplayReducer(gameplay, {
+      type: 'enemy-tick',
+      timestamp: now + RAT_COMBAT_CONFIG.roomEntryAwarenessGraceMs,
+      room,
+    });
   if (corpse) {
     gameplay = gameplayReducer(gameplay, {
       type: 'attack',
@@ -98,7 +106,11 @@ function combatRecord({
       room,
     });
   }
-  const recordTime = corpse ? now + 420 : telegraph ? now + 100 : now;
+  const recordTime = corpse
+    ? now + 420
+    : telegraph
+      ? now + RAT_COMBAT_CONFIG.roomEntryAwarenessGraceMs + 100
+      : now;
   if (paused)
     gameplay = gameplayReducer(gameplay, {
       type: 'pause-run',
@@ -303,9 +315,9 @@ test('Rat chases, telegraphs, locks its target, and misses a dodge', async ({ pa
   const rat = page.locator('[data-enemy-id="e2e-rat-1"]');
   await expect(rat).toHaveAttribute('data-enemy-x', '5');
   await expect(rat).toHaveAttribute('data-enemy-x', '4', { timeout: 1_000 });
-  await expect(rat).toHaveAttribute('data-enemy-state', 'telegraphing', { timeout: 1_200 });
+  await expect(rat).toHaveAttribute('data-enemy-state', 'telegraphing', { timeout: 1_800 });
   await page.keyboard.press('ArrowLeft');
-  await expect(rat).toHaveAttribute('data-enemy-state', 'cooldown', { timeout: 1_000 });
+  await expect(rat).toHaveAttribute('data-enemy-state', 'recovering', { timeout: 1_000 });
   await expect(page.getByLabel('6 of 6 health remaining.')).toBeVisible();
 });
 
@@ -316,7 +328,7 @@ test('directional shield blocks, two sword hits defeat, and the exit opens immed
   await page.goto('/dungeon/run');
   const rat = page.locator('[data-enemy-id="e2e-rat-1"]');
   await page.keyboard.down('ShiftLeft');
-  await expect(rat).toHaveAttribute('data-enemy-state', 'cooldown', { timeout: 1_000 });
+  await expect(rat).toHaveAttribute('data-enemy-state', 'recovering', { timeout: 1_500 });
   await page.keyboard.up('ShiftLeft');
   await expect(page.getByLabel('6 of 6 health remaining.')).toBeVisible();
 
@@ -346,7 +358,7 @@ test('simultaneous Rat attacks respect one universal invulnerability window', as
     }),
   );
   await page.goto('/dungeon/run');
-  await expect(page.getByLabel('5 of 6 health remaining.')).toBeVisible({ timeout: 1_500 });
+  await expect(page.getByLabel('5 of 6 health remaining.')).toBeVisible({ timeout: 2_000 });
   await expect(page.locator('.player-token--invulnerable')).toBeVisible();
 });
 

@@ -9,6 +9,9 @@ const forbiddenDevelopmentText = [
   'Freeze Enemy AI',
   'Enemy framework',
   'Version metadata',
+  'Combat Debug',
+  'Reset Combat Debug counters',
+  'Body-lock prevention activations',
 ];
 
 const files = (await readdir(assetsDirectory)).filter((file) => file.endsWith('.js'));
