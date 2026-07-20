@@ -1,8 +1,16 @@
-# Mirrorvault current state
+# Resonant Ruins current state
 
-Audit date: 2026-07-14
+Updated: 2026-07-20
 
-## Executive assessment
+## Current implementation update: Rat Combat & Kiting v0.2
+
+Resonant Ruins now has a reducer-owned, deterministic Rat combat loop: unaware Rats alert by path distance, chase with stable cardinal BFS, lock a tile for a 425 ms telegraph, resolve damage exactly once at visual-lunge entry, and recover after every outcome. The player can bait, dodge, directional-block, perfect-block by a last-window raise or turn, and counterattack during recovery. Stable destination reservations prevent Rat overlap/swaps and avoid an otherwise preventable final-escape body lock without protecting genuine dead ends.
+
+Rat facing, awareness, target, lunge/recovery outcome, and remaining deadlines restore through active-run schema v6. Held physical shield input is intentionally cleared on pause/refresh. New deterministic rooms use `generator-2` after the minimum Rat spawn distance changed to 4 path tiles; saved rooms retain the generator version that created them. Development-only Combat Debug exposes bounded playtest counters and is rejected from production bundles by the safety scan.
+
+Implemented boundaries remain intentionally narrow: no new enemies, rewards, healing, upgrades, backend gameplay authority, database, accounts, research telemetry, machine learning, audio, or mobile controls were added. See [Enemy Framework v0.2](ENEMY_FRAMEWORK.md) and [Balance changelog](BALANCE_CHANGELOG.md).
+
+## Historical audit: executive assessment
 
 Mirrorvault is a coherent, attractive local prototype rather than a finished adaptive game or production web service. Its strongest qualities are the distinct visual identity, clear separation between frontend and backend, strict TypeScript configuration, centralized API and storage boundaries, usable responsive layouts, and honest labeling of mock content. Its biggest gap is behavioral: the interface describes an adaptive dungeon, but most game signals, combat rules, hazards, rewards, health, character traits, and room generation are still decorative or disconnected from state.
 

@@ -347,13 +347,21 @@ The local frontend now separates three persistence lifetimes:
   `dungeonRoomsCleared`; legacy records migrate to the explicit `unknown` preset. Bests are
   partitioned by character and preset.
 
-Enemy Framework v1 is reducer-owned and frontend-authoritative. `enemySystem.ts` provides
-deterministic cardinal BFS and generated quantity selection; `useEnemyClock.ts` provides one shared
-real-time clock; and `types/enemies.ts` defines the Rat state machine and fixed constants. Active-run
-schema v5 stores exact current-room Rat state and remaining deadlines only. Pausing shifts enemy
-deadlines exactly, living Rats seal `enemies-defeated` exits, and corpses become non-blocking
-immediately. New combat signals remain bounded numeric summaries. Adaptation affects generated Rat
-quantity only, never Rat stats or intelligence.
+Enemy Framework v0.2 is reducer-owned and frontend-authoritative. `config/combat.ts` centralizes
+timing and awareness values; `enemySystem.ts` provides deterministic cardinal BFS, path distance,
+escape-tile queries, stable move candidates, and generated quantity selection; `useEnemyClock.ts`
+provides one shared real-time clock; and `types/enemies.ts` defines serializable Rat combat state.
+The reducer sequence is idle/unaware → chasing → telegraphing → lunging → recovering → chasing.
+Logical impact resolves once when entering lunge; CSS animation cannot deal damage. Stable Rat-ID
+ordering and transient destination reservations prevent overlap/swaps and avoid reserving the
+player's final current escape when static geometry offers at least two choices.
+
+Active-run schema v6 stores exact current-room facing, awareness, target, outcome, recovery kind,
+metrics, and remaining awareness/movement/telegraph/lunge/recovery deadlines. Schema v5 cooldowns
+migrate to recovery. Pause shifts deadlines exactly; refresh reconstructs them. Physical held-input
+and perfect-block input timestamps are deliberately not restored, so the shield resumes lowered.
+Living Rats seal `enemies-defeated` exits, corpses become non-blocking immediately, and adaptation
+affects generated Rat quantity only—not Rat stats, timing, awareness, or intelligence.
 
 Generation remains frontend-only and deterministic. Pure utilities map bounded profiles to typed
 parameters, derive a room seed from the run seed/room number/chosen exit/generator version, generate
@@ -361,6 +369,10 @@ rectangle or L-shaped floor regions, place exits and existing rune hazards, vali
 safe cardinal paths, retry at most 20 times, and fall back to a known-safe rectangle. Generated rooms
 may contain deterministic safe Rat spawns and rune hazards; treasure, branches, internal wall
 structures, and backtracking remain outside this milestone.
+
+`VERSION_INFO` identifies new gameplay as `mvp-0.2` and new generated rooms as `generator-2`.
+Generated-room saves retain the generator version that produced their snapshot; legacy numeric
+version `1` restores as `generator-1`. Adaptation remains `rules-1` and telemetry schema remains `1`.
 
 The dungeon has two route boundaries. `/dungeon` uses the normal website shell and contains only
 experience selection and run setup. `/dungeon/run` uses `GameShell` without the website header,

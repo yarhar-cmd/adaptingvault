@@ -1,79 +1,78 @@
-# Resonant Ruins Enemy Framework v1
+# Resonant Ruins Enemy Framework v0.2
 
-## Scope and authority
+Rat Combat & Kiting v0.2 keeps gameplay frontend-authoritative. `gameplayReducer` owns combat state and absolute deadlines, `useEnemyClock` supplies one shared 25 ms timestamped tick, and React/CSS only render that state. Animation callbacks never deal damage.
 
-Enemy Framework v1 adds one enemy type, the Rat. Gameplay remains frontend-authoritative and the existing `gameplayReducer` plus `useRunController` remain the only gameplay state authority. React components render reducer state; they do not own independent combat or timer state.
+## Rat model
 
-The milestone does not add variants, bosses, ranged attacks, projectiles, stun, knockback, parry, loot, healing, upgrades, audio, accounts, backend persistence, or deployment work.
+Every Rat stores a cardinal facing, permanent room awareness (`unaware` or `alerted`), position, health, locked attack target, combat state, serializable deadlines, recovery kind, last attack outcome, and bounded debug fields. The living state sequence is:
 
-## Rat model and fixed constants
+`idle` → `chasing` → `telegraphing` → `lunging` → `recovering` → `chasing`
 
-Rat state is typed as `chasing`, `telegraphing`, `cooldown`, or `corpse`. The constants in `apps/frontend/src/types/enemies.ts` are fixed for every preset, room depth, adaptive profile, and mode:
+Any living state may become `corpse`. A lethal sword hit clears the pending target and every attack deadline. A nonlethal sword hit during telegraph damages the Rat without interrupting it.
 
-| Constant                                |    Value |
-| --------------------------------------- | -------: |
-| Movement interval                       |   333 ms |
-| Attack telegraph                        |   300 ms |
-| Attack cooldown                         | 1,200 ms |
-| Maximum health                          |        2 |
-| Attack damage                           |        1 |
-| Corpse absorption                       |   700 ms |
-| Universal player damage invulnerability |   500 ms |
+## Central balance configuration
 
-## Movement, pathfinding, and collision
+`apps/frontend/src/config/combat.ts` is the single TypeScript source of truth.
 
-One shared 25 ms enemy clock sends timestamped ticks into the reducer only while current-room enemy objects exist. Rats move at most once per 333 ms interval and only in four cardinal directions. Deterministic BFS uses the stable neighbor order north, west, east, south. The player tile is a pathfinding destination but is never entered.
+| Rule                                 |                 Initial v0.2 value |
+| ------------------------------------ | ---------------------------------: |
+| Rat movement interval                |                             333 ms |
+| Attack telegraph                     |                             425 ms |
+| Visual lunge                         |                             100 ms |
+| Standard recovery                    |                             300 ms |
+| Perfect-block recovery               |                       500 ms total |
+| Perfect-block window                 | final 125 ms before logical impact |
+| Room-entry awareness grace           |                             500 ms |
+| Awareness range                      |                       7 path tiles |
+| Attacked-Rat alert propagation       |                       3 path tiles |
+| Generated Rat minimum spawn distance |                       4 path tiles |
+| Rat health / damage                  |                              2 / 1 |
+| Player damage invulnerability        |                             500 ms |
 
-Static Rat pathfinding excludes void, walls, and exits. Dynamic movement also excludes every other living Rat and the player tile. Rune hazards remain walkable for Rats and never damage them. If no path exists or another Rat commits the desired tile first, the Rat waits for a later movement tick.
+These values are constant across experience presets. Presets still affect authored/generated Rat quantity only.
 
-The player cannot enter a living Rat tile. Corpses become non-blocking immediately. While living enemies remain, exits whose condition is `enemies-defeated` are sealed for player collision and rendering. The final death opens those exits immediately; the 700 ms corpse effect may continue.
+## Awareness and authored Chambers
 
-## Attacks, shield, and sword
+Rats begin unaware and idle. Awareness evaluation starts after the 500 ms room-entry grace period and uses deterministic cardinal path distance, not straight-line distance. A Rat within 7 path tiles becomes alerted permanently for that room. Striking an unaware Rat alerts it immediately and alerts living Rats within 3 path tiles of the struck Rat.
 
-An adjacent chasing Rat locks the player's current tile and rears for 300 ms without moving or retargeting. Resolution hits only that locked tile. Moving away causes a miss. The Rat then spends exactly 1,200 ms in cooldown.
+The same rules apply to authored and generated Rats. Automated reachability coverage confirms that every authored Rat in Awakening Chambers 4 and 5 remains reachable from the player spawn and that their enemy-defeat exit objectives remain completable. The tutorial layout was not redesigned.
 
-At impact, directional blocking compares the Rat's current direction from the player with the player's current facing. A held shield blocks only matching directions, so the player can turn during the telegraph. A block deals no damage and does not stun, move, or reset the Rat. The CSS shield remains a carried gray shield when inactive and moves in front while active; it is not a ring.
+## Attack, dodge, and recovery
 
-Multiple Rats may telegraph and resolve in the same tick. The first unblocked hit starts the universal 500 ms player invulnerability window, so later same-window hits do not remove more health. Misses and blocks do not start invulnerability.
+An adjacent chasing Rat faces the player, locks the player's current tile, and telegraphs for 425 ms without moving or retargeting. At the stored logical impact deadline, the reducer resolves exactly one outcome and enters `lunging`. The 100 ms lunge is visual only: the Rat remains on its logical tile and cannot deal a second collision or damage event.
 
-The sword attacks the adjacent facing tile for one damage. Rats have two health, show an injured mark at one health, and require two valid hits. Sword hits do not stun or knock back. A lethal hit cancels telegraph/cooldown state, increments defeat once, opens sealed exits immediately when it is the final Rat, and begins corpse absorption.
+Leaving the locked tile causes a miss. Remaining there causes a hit unless the current held shield faces the Rat. Hit, miss, and regular block all lead to 300 ms recovery after the visual lunge. Perfect block leads to 500 ms recovery and stronger recoil. Multiple Rats may telegraph and resolve on the same tick; stable Rat-ID order plus the existing universal invulnerability window makes health loss deterministic.
 
-## Spawning and adaptation limits
+## Shield and perfect block
 
-Awakening Chambers 4 and 5 each define three ordered authored Rat spawns. Presets activate the first one, two, or three spawns for New Delver, Seasoned Adventurer, and Dungeon Veteran respectively. Authored priority is never randomized.
+The shield exists only while a keyboard Shift key or accessible hold control is physically active. Shielding locks movement but still permits turning. It protects only the current facing direction.
 
-Generated rooms select zero or more safe deterministic spawns with caps of two, three, and four for those presets. Candidate tiles must be walkable floor, outside hazards and exits, at least five path steps from the player, at least two cardinal steps from an exit, reachable, unique, and compatible with the sealed-exit condition. If fewer safe tiles exist, the selected count is reduced.
+A block is perfect when either the shield was freshly raised in the correct direction or an already-raised shield was turned into the correct direction during the final 125 ms before logical impact. A shield held correctly before that window gives a regular block.
 
-Adaptation affects generated Rat quantity only. Existing aggression, caution, hazard-tolerance, room-shape/size, mode, preset, and seeded pressure inputs make small bounded count adjustments. They never alter Rat health, damage, speed, telegraph, cooldown, pathfinding, or player invulnerability. New combat signals are bounded numeric summaries; they do not currently change the five adaptive traits directly.
+The player token renders a metallic-gray shield at its facing edge. The former protected-neighbor outline, hexagon marker, and inactive carried shield are removed. Sage `#7E9C82` appears briefly after a successful block; perfect blocks use a stronger sage reaction and Rat recoil. No visible BLOCKED, PERFECT, or PARRY label is rendered.
 
-## Awakening order and authored rooms
+## Deterministic movement and body-lock prevention
 
-New runs always use Chambers 1, 2, 3, 4, and 5 in order, then generated Dungeon Rooms. Chamber 4 is a clear 17 by 11 Rat-combat introduction without runes. Chamber 5 is a larger 21 by 15 combined encounter with sparse runes.
+Rats use cardinal BFS with stable neighbor order north, west, east, south. Void, walls, and exits are not walkable; rune hazards are walkable. Living Rats and the player are dynamic blockers. Stable Rat-ID processing and destination reservation prevent overlap, same-tile commits, and direct swaps.
 
-Legacy schema records keep any valid persisted `evaluation-room-*` order and current room. Migration does not teleport, replay, or regenerate the current room. Only new runs adopt the fixed order.
+Before a chasing Rat commits a preferred move, the reducer calculates the player's current legal cardinal escapes. If static room geometry provides at least two legal movement choices but other Rats have reduced the player to one current escape, a nonattacking Rat avoids reserving that final tile when it can choose another deterministic candidate or wait. Telegraphing, lunging, and recovering Rats remain stationary. Attack permission is not limited by this rule. Genuine geometric dead ends are not made safe.
 
-## Persistence, pause, and recovery
+## Pause, save, and refresh
 
-Active-run schema v5 stores exact enemy state for the current room only: IDs, type, position, health, state, locked target, remaining movement/telegraph/cooldown/corpse/hit-feedback durations, defeat-count flag, spawn metadata, count plan, AI freeze, and recent block feedback. It does not store past enemy paths or detailed enemy state from prior rooms.
+Active-run schema v6 stores current-room Rat facing, awareness, target, state, attack outcome, recovery kind, metrics, and remaining movement, awareness-grace, telegraph, lunge, recovery, corpse, and feedback durations. v5 `cooldown` records migrate to v6 `recovering` records without losing remaining time. Earlier migrations remain supported.
 
-Pause stores remaining durations relative to the pause timestamp. Resume shifts every absolute enemy deadline by the exact paused duration. Refreshing a paused run therefore preserves telegraph, cooldown, hit, and corpse time. Defeat and restart follow the existing archive/run lifecycle.
+Pause freezes every enemy deadline by shifting it by the exact paused duration on resume. Refresh reconstructs deadlines from remaining durations. Restoring `lunging` means logical impact already occurred, so later ticks only enter recovery and cannot apply duplicate damage.
 
-Schema v4 and older migrations use an empty current-room enemy state instead of inventing retroactive encounters. A malformed living enemy invalidates only the active run; profile, settings, and archive storage remain independent. A malformed or expired corpse is discarded without recounting defeat. Player-position repair excludes living Rat tiles.
+Exact restoration refers to authoritative combat state and timers. Physical keyboard/pointer held state and perfect-block input timestamps are intentionally cleared on pause or refresh; the player resumes with the shield lowered to prevent stuck controls.
 
-## Development tools and Awakening editor
+Generated room saves retain the generator version that produced them. New rooms use `generator-2`; legacy numeric version `1` restores as `generator-1` instead of being relabeled. The game version is `mvp-0.2`, adaptation remains `rules-1`, and telemetry schema remains `1`.
 
-Development Debug Tools show current Rat state, path target/next step, remaining deadlines, spawn reason, counts, sealing, generated quantity inputs, and combat signals. `Spawn Rat`, `Defeat All Enemies`, and `Freeze Enemy AI` use reducer actions. Debug advance refuses while a living enemy seals the exit.
+## Development diagnostics
 
-The development-only Awakening editor supports Chambers 1–5, dimensions, floor, wall/void, player spawn, normal and shortcut exits, hazards, ordered Rat spawns, erase, validation, reset, JSON copy, and isolated playable preview. Drafts use only `mirrorvault:awakening-editor-drafts:v1`; corruption clears that key alone. Normal gameplay always reads official room definitions from `apps/frontend/src/data/rooms/evaluationRooms.ts`.
+Development-only Combat Debug shows each Rat's ID, tile, facing, awareness, path distance, state, target, remaining deadlines, blockage, and selected step. It also shows player escape tiles, live Rat-state counts, attacks, dodges, blocks, sword results, damage, combat duration, maximum alert pressure, and body-lock interventions.
 
-After validation, use **Copy Room JSON** and manually update the matching definition in `apps/frontend/src/data/rooms/evaluationRooms.ts`. The browser never rewrites source files. Preview has its own reducer and enemy clock and never writes the active run, player profile, archive, or run history.
+Resetting Combat Debug stores a local display baseline only. It does not mutate gameplay, adaptive data, Rat state, run history, or saved-run integrity. Debug Tools and all Combat Debug labels remain behind `import.meta.env.DEV`; the production safety scan rejects those strings in emitted JavaScript.
 
-Production compilation removes the Debug/editor branch guarded by `import.meta.env.DEV`. After `npm run build`, `npm run verify:production-safety` scans emitted JavaScript for editor keys, controls, and diagnostics.
+## Deliberately deferred
 
-## Verification and limitations
-
-Run `npm.cmd run test`, `npm.cmd run test:e2e`, `npm.cmd run lint`, `npm.cmd run typecheck`, `npm.cmd run build`, and `npm.cmd run verify:production-safety` from the repository root.
-
-Coverage includes constants, deterministic BFS, collision, telegraph/miss/block/damage behavior, simultaneous i-frames, sword and corpse behavior, fixed authored counts, generated spawn validation, schema v5 restore, pause timing, 1,000-room bounded storage, editor isolation, official room validation, and Chromium critical flows.
-
-Remaining limitations are intentional: temporary CSS Rat art, no parry, no enemy variety, no backtracking, no combat rewards, no backend authority, and no production editor.
+No new enemy, healing, weapon, upgrade, treasure, boss, audio, mobile control, research telemetry, machine learning, backend authority, internal-wall generator, or preset-specific Rat intelligence is included. Balance questions still requiring browser playtesting are recorded in `docs/BALANCE_CHANGELOG.md`.

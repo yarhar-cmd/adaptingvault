@@ -1,4 +1,12 @@
-# Mirrorvault development plan
+# Resonant Ruins development plan
+
+## Completed milestone: Rat Combat & Kiting v0.2
+
+The Rat loop now supports readable facing, path-distance awareness, locked-target telegraphs, visual-only lunges, recovery after every attack, directional and perfect blocks, counterattack windows, simultaneous deterministic attacks, and crowding-aware movement. Combat state and timers persist through schema v6; generated rooms created under the four-path-tile spawn minimum identify themselves as `generator-2`.
+
+The next development decision should follow browser balance playtesting rather than broadening combat immediately. Use Combat Debug to review dodge rate, shield use, perfect blocks, recovery counterattacks, maximum alert pressure, and body-lock intervention frequency. Tune only centralized values in `config/combat.ts` with a documented reason and regression coverage.
+
+Do not add Rat variants, preset-specific decision quality, rewards, healing, upgrades, backend authority, or research telemetry until the v0.2 loop has been presentation-tested. See [Enemy Framework v0.2](ENEMY_FRAMEWORK.md) and [Balance changelog](BALANCE_CHANGELOG.md).
 
 ## Recommended strategy
 

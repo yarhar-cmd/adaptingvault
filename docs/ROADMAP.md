@@ -1,4 +1,16 @@
-# Mirrorvault feature roadmap
+# Resonant Ruins feature roadmap
+
+## Completed milestone: mvp-0.2 Rat Combat & Kiting
+
+- [x] CSS Rat silhouette with readable four-direction facing, telegraph, lunge, recovery, corpse, and reduced-motion state cues.
+- [x] Unaware/alerted path-distance awareness with 500 ms entry grace and attacked-Rat propagation.
+- [x] Locked-tile attacks, dodge misses, one-time logical impact, recovery after every outcome, and simultaneous deterministic attacks.
+- [x] Player-edge held shield, regular block, final-125 ms perfect raise/turn block, stronger sage feedback, and extended Rat recovery.
+- [x] Stable ID movement reservations, no overlaps/swaps, and avoidable final-escape body-lock prevention.
+- [x] Active-run schema v6, v5 migration, exact telegraph/lunge/recovery restoration, and generator provenance retention.
+- [x] Development-only Combat Debug counters and production exclusion checks.
+
+Deferred from this milestone: Rat variants, preset-specific intelligence, rewards, healing, upgrades, audio, mobile controls, backend authority, research telemetry, and machine learning.
 
 This roadmap is ordered by risk reduction. A later phase may be explored in design, but implementation should not bypass its prerequisites.
 
