@@ -1,7 +1,9 @@
 import type { AdaptiveProfile, ExperiencePreset } from '../types/adaptation';
 import type { EnemyCountPlan, EnemyRoomState, RatEnemy } from '../types/enemies';
-import { RAT_MAX_HEALTH, RAT_MOVEMENT_INTERVAL_MS, type EnemySpawnSource } from '../types/enemies';
+import { RAT_MAX_HEALTH, createCombatMetrics, type EnemySpawnSource } from '../types/enemies';
+import type { CardinalDirection } from '../types/player';
 import type { EnemySpawnDefinition, RoomDefinition, TileCoordinate } from '../types/rooms';
+import { RAT_COMBAT_CONFIG } from '../config/combat';
 import {
   coordinateKey,
   coordinatesMatch,
@@ -32,14 +34,14 @@ export function livingRats(enemyState: EnemyRoomState): RatEnemy[] {
   return enemyState.rats.filter(isLivingRat);
 }
 
-function pathNeighbors(coordinate: TileCoordinate): TileCoordinate[] {
+export function pathNeighbors(coordinate: TileCoordinate): TileCoordinate[] {
   return RAT_PATH_NEIGHBOR_ORDER.map((direction) => ({
     x: coordinate.x + offsets[direction].x,
     y: coordinate.y + offsets[direction].y,
   }));
 }
 
-function isStaticRatPathTile(
+export function isStaticRatPathTile(
   room: RoomDefinition,
   tile: TileCoordinate,
   player: TileCoordinate,
@@ -96,8 +98,70 @@ export function pathDistance(
   start: TileCoordinate,
   target: TileCoordinate,
 ): number | null {
-  const path = findRatPath(room, start, target);
-  return path ? path.length - 1 : null;
+  if (coordinatesMatch(start, target)) return 0;
+  const queue: { tile: TileCoordinate; distance: number }[] = [{ tile: start, distance: 0 }];
+  const visited = new Set([coordinateKey(start)]);
+  let queueIndex = 0;
+  while (queueIndex < queue.length) {
+    const current = queue[queueIndex++]!;
+    for (const next of pathNeighbors(current.tile)) {
+      const key = coordinateKey(next);
+      if (visited.has(key) || !isStaticRatPathTile(room, next, target)) continue;
+      if (coordinatesMatch(next, target)) return current.distance + 1;
+      visited.add(key);
+      queue.push({ tile: next, distance: current.distance + 1 });
+    }
+  }
+  return null;
+}
+
+export function directionBetween(
+  from: TileCoordinate,
+  to: TileCoordinate,
+): CardinalDirection | null {
+  if (to.x === from.x && to.y === from.y - 1) return 'up';
+  if (to.x === from.x && to.y === from.y + 1) return 'down';
+  if (to.x === from.x - 1 && to.y === from.y) return 'left';
+  if (to.x === from.x + 1 && to.y === from.y) return 'right';
+  return null;
+}
+
+export function playerStaticEscapeTiles(
+  room: RoomDefinition,
+  player: TileCoordinate,
+): TileCoordinate[] {
+  return pathNeighbors(player).filter((tile) => isStaticRatPathTile(room, tile, player));
+}
+
+export function playerLegalEscapeTiles(
+  room: RoomDefinition,
+  player: TileCoordinate,
+  occupied: ReadonlySet<string>,
+): TileCoordinate[] {
+  return playerStaticEscapeTiles(room, player).filter((tile) => !occupied.has(coordinateKey(tile)));
+}
+
+export function deterministicRatMoveCandidates(
+  room: RoomDefinition,
+  rat: RatEnemy,
+  player: TileCoordinate,
+  occupied: ReadonlySet<string>,
+): TileCoordinate[] {
+  const candidates = pathNeighbors(rat.position).filter(
+    (tile) =>
+      !coordinatesMatch(tile, player) &&
+      !occupied.has(coordinateKey(tile)) &&
+      isStaticRatPathTile(room, tile, player),
+  );
+  return candidates.sort((left, right) => {
+    const leftDistance = pathDistance(room, left, player) ?? Number.MAX_SAFE_INTEGER;
+    const rightDistance = pathDistance(room, right, player) ?? Number.MAX_SAFE_INTEGER;
+    return (
+      leftDistance - rightDistance ||
+      pathNeighbors(rat.position).findIndex((tile) => coordinatesMatch(tile, left)) -
+        pathNeighbors(rat.position).findIndex((tile) => coordinatesMatch(tile, right))
+    );
+  });
 }
 
 function ratPathDistances(room: RoomDefinition, start: TileCoordinate): Map<string, number> {
@@ -141,19 +205,24 @@ export function directionFromPlayerToRat(
 
 export function createRatFromSpawn(
   spawn: EnemySpawnDefinition,
-  now: number,
+  _now: number,
   source: EnemySpawnSource = spawn.source,
 ): RatEnemy {
   return {
     id: spawn.id,
     type: 'rat',
     position: { ...spawn.tile },
+    facing: 'left',
+    awareness: 'unaware',
     health: RAT_MAX_HEALTH,
-    state: 'chasing',
+    state: 'idle',
     lockedTarget: null,
-    nextMovementAt: now + RAT_MOVEMENT_INTERVAL_MS,
+    nextMovementAt: null,
     telegraphEndsAt: null,
-    cooldownEndsAt: null,
+    lungeEndsAt: null,
+    recoveryEndsAt: null,
+    recoveryKind: null,
+    attackOutcome: null,
     corpseEndsAt: null,
     hitFlashUntil: null,
     defeatCounted: false,
@@ -161,6 +230,8 @@ export function createRatFromSpawn(
     spawnReason: spawn.reason,
     authoredSpawnNumber: spawn.source === 'authored' ? spawn.order : undefined,
     nextPathStep: null,
+    pathDistanceToPlayer: null,
+    pathBlocked: false,
   };
 }
 
@@ -189,7 +260,10 @@ export function createRoomEnemyState(
     aiFrozen: false,
     countPlan,
     lastBlockAt: null,
+    lastBlockKind: null,
     lastTickAt: now,
+    awarenessGraceEndsAt: now + RAT_COMBAT_CONFIG.roomEntryAwarenessGraceMs,
+    combatMetrics: createCombatMetrics(),
   };
 }
 
@@ -200,7 +274,10 @@ export function emptyEnemyRoomState(roomId = ''): EnemyRoomState {
     aiFrozen: false,
     countPlan: null,
     lastBlockAt: null,
+    lastBlockKind: null,
     lastTickAt: null,
+    awarenessGraceEndsAt: null,
+    combatMetrics: createCombatMetrics(),
   };
 }
 
@@ -265,7 +342,7 @@ export function selectGeneratedRatSpawns(
       )
         return false;
       const distance = distancesFromPlayer.get(coordinateKey(tile));
-      return distance !== undefined && distance >= 5;
+      return distance !== undefined && distance >= RAT_COMBAT_CONFIG.minimumSpawnPathDistanceTiles;
     }),
   );
   const selected: TileCoordinate[] = [];

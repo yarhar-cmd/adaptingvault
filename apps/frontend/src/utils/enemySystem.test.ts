@@ -4,6 +4,8 @@ import type { ExperiencePreset } from '../types/adaptation';
 import {
   RAT_ATTACK_COOLDOWN_MS,
   RAT_ATTACK_DAMAGE,
+  RAT_ATTACK_LUNGE_MS,
+  RAT_ATTACK_RECOVERY_MS,
   RAT_ATTACK_TELEGRAPH_MS,
   RAT_CORPSE_ABSORPTION_MS,
   RAT_MAX_HEALTH,
@@ -11,11 +13,14 @@ import {
 } from '../types/enemies';
 import type { RoomDefinition } from '../types/rooms';
 import { createRectangularRoom } from './roomGeometry';
+import { findSafeSpawn } from './roomGeometry';
+import { evaluationRooms } from '../data/rooms/evaluationRooms';
 import {
   authoredRatCount,
   createRoomEnemyState,
   findRatPath,
   nextRatPathStep,
+  pathDistance,
   selectGeneratedRatSpawns,
 } from './enemySystem';
 
@@ -48,11 +53,15 @@ describe('Resonant Ruins Rat framework', () => {
       RAT_ATTACK_COOLDOWN_MS,
       RAT_MAX_HEALTH,
       RAT_ATTACK_DAMAGE,
+      RAT_ATTACK_LUNGE_MS,
+      RAT_ATTACK_RECOVERY_MS,
       RAT_CORPSE_ABSORPTION_MS,
     }).toEqual({
       RAT_MOVEMENT_INTERVAL_MS: 333,
-      RAT_ATTACK_TELEGRAPH_MS: 300,
-      RAT_ATTACK_COOLDOWN_MS: 1_200,
+      RAT_ATTACK_TELEGRAPH_MS: 425,
+      RAT_ATTACK_COOLDOWN_MS: 300,
+      RAT_ATTACK_LUNGE_MS: 100,
+      RAT_ATTACK_RECOVERY_MS: 300,
       RAT_MAX_HEALTH: 2,
       RAT_ATTACK_DAMAGE: 1,
       RAT_CORPSE_ABSORPTION_MS: 700,
@@ -94,6 +103,12 @@ describe('Resonant Ruins Rat framework', () => {
     expect(findRatPath(enclosed, { x: 6, y: 3 }, { x: 2, y: 3 })).toBeNull();
   });
 
+  it('reports exact path distance, including one tile for adjacent coordinates', () => {
+    const fixture = room();
+    expect(pathDistance(fixture, { x: 3, y: 3 }, { x: 2, y: 3 })).toBe(1);
+    expect(pathDistance(fixture, { x: 6, y: 3 }, { x: 2, y: 3 })).toBe(4);
+  });
+
   it('uses preset quantity only for authored encounters and never changes Rat stats', () => {
     const fixture = {
       ...room(),
@@ -114,7 +129,12 @@ describe('Resonant Ruins Rat framework', () => {
     ).toEqual([1, 2, 3]);
     for (const preset of presets) {
       for (const rat of createRoomEnemyState(fixture, preset, 1_000).rats) {
-        expect(rat).toMatchObject({ health: 2, nextMovementAt: 1_333 });
+        expect(rat).toMatchObject({
+          health: 2,
+          state: 'idle',
+          awareness: 'unaware',
+          nextMovementAt: null,
+        });
       }
     }
   });
@@ -137,7 +157,19 @@ describe('Resonant Ruins Rat framework', () => {
       expect(fixture.hazards).not.toContainEqual(spawn.tile);
       expect(
         Math.abs(spawn.tile.x - input.playerSpawn.x) + Math.abs(spawn.tile.y - input.playerSpawn.y),
-      ).toBeGreaterThanOrEqual(5);
+      ).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('keeps authored Rat Awakening Chambers reachable when Rats begin unaware', () => {
+    const authoredRatRooms = evaluationRooms.filter((fixture) => fixture.enemySpawns?.length);
+    expect(authoredRatRooms.length).toBeGreaterThan(0);
+    for (const fixture of authoredRatRooms) {
+      const spawn = findSafeSpawn(fixture, fixture.entrance?.direction ?? 'west');
+      for (const rat of fixture.enemySpawns ?? []) {
+        expect(pathDistance(fixture, spawn, rat.tile)).not.toBeNull();
+      }
+      expect(fixture.exits.some((exit) => exit.condition.type === 'enemies-defeated')).toBe(true);
     }
   });
 });

@@ -582,6 +582,7 @@ export function useRunController(initialRecord: ActiveRunRecord) {
       },
       livingEnemyCount,
       enemies: gameplay.enemies,
+      room: currentRoom,
       onSpawnRat: () =>
         dispatchGameplay({ type: 'debug-spawn-rat', timestamp: Date.now(), room: currentRoom }),
       onDefeatAllEnemies: () =>

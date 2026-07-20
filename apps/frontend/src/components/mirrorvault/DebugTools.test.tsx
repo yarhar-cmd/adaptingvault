@@ -4,6 +4,8 @@ import { VERSION_INFO } from '../../config/version';
 import { NEUTRAL_ADAPTIVE_PROFILE } from '../../services/playerProfileStorage';
 import { createGameplayState } from '../../utils/gameplayState';
 import { DebugTools } from './DebugTools';
+import { createRectangularRoom } from '../../utils/roomGeometry';
+import { createRoomEnemyState } from '../../utils/enemySystem';
 
 describe('Resonant Ruins development Debug Tools', () => {
   it('groups signals, profiles, generation state, sliders, and explicit controls for the drawer', () => {
@@ -50,5 +52,59 @@ describe('Resonant Ruins development Debug Tools', () => {
     expect(clear).toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Advance to Next Room' }));
     expect(advance).toHaveBeenCalled();
+  });
+
+  it('shows live Combat Debug state and resets only its displayed baseline', () => {
+    const room = createRectangularRoom({
+      id: 'combat-debug-room',
+      phase: 'dungeon',
+      width: 9,
+      height: 7,
+      exitEnabled: true,
+      enemySpawns: [
+        {
+          id: 'debug-rat-1',
+          type: 'rat',
+          tile: { x: 5, y: 3 },
+          order: 1,
+          source: 'generated',
+          reason: 'Debug test',
+        },
+      ],
+    });
+    const enemies = createRoomEnemyState(room, 'seasoned-adventurer', 1_000);
+    enemies.combatMetrics.attacksStarted = 4;
+    enemies.combatMetrics.perfectBlocks = 2;
+    const gameplay = { ...createGameplayState(6), enemies };
+
+    render(
+      <DebugTools
+        gameplay={gameplay}
+        longTermProfile={NEUTRAL_ADAPTIVE_PROFILE}
+        onAdvance={vi.fn()}
+        onTemporaryOverride={vi.fn()}
+        onClearOverrides={vi.fn()}
+        onApplyOverrides={vi.fn()}
+        storageDiagnostics={{
+          activeRunBytes: 0,
+          runArchiveBytes: 0,
+          detailedSnapshots: 0,
+          currentVisitedTiles: 0,
+          summarizedRooms: 0,
+          activeRunSchemaVersion: 6,
+          archiveSchemaVersion: 2,
+        }}
+        enemies={enemies}
+        room={room}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: 'Combat Debug' })).toBeVisible();
+    expect(screen.getByText('Attacks started').nextElementSibling).toHaveTextContent('4');
+    expect(screen.getByText('Perfect blocks').nextElementSibling).toHaveTextContent('2');
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Combat Debug counters' }));
+    expect(screen.getByText('Attacks started').nextElementSibling).toHaveTextContent('0');
+    expect(enemies.combatMetrics.attacksStarted).toBe(4);
+    expect(gameplay.enemies).toBe(enemies);
   });
 });

@@ -5,7 +5,10 @@ import type { GameplayState } from '../../utils/gameplayState';
 import { getAdaptationStrength } from '../../utils/adaptiveProfile';
 import { PrimaryButton, SecondaryButton } from '../common/Buttons';
 import { formatByteSize, type StorageDiagnostics } from '../../services/storageDiagnostics';
-import type { EnemyRoomState } from '../../types/enemies';
+import type { CombatMetrics, EnemyRoomState } from '../../types/enemies';
+import type { RoomDefinition } from '../../types/rooms';
+import { coordinateKey, gridPositionToCoordinate } from '../../utils/roomGeometry';
+import { playerLegalEscapeTiles } from '../../utils/enemySystem';
 import { AwakeningEditor } from './AwakeningEditor';
 
 const traits: AdaptiveTrait[] = ['pace', 'caution', 'aggression', 'hazardTolerance', 'exploration'];
@@ -19,6 +22,7 @@ export function DebugTools({
   onApplyOverrides,
   storageDiagnostics,
   enemies,
+  room,
   livingEnemyCount = 0,
   onSpawnRat,
   onDefeatAllEnemies,
@@ -32,17 +36,31 @@ export function DebugTools({
   onApplyOverrides: (profile: AdaptiveProfile) => void;
   storageDiagnostics: StorageDiagnostics;
   enemies?: EnemyRoomState;
+  room?: RoomDefinition;
   livingEnemyCount?: number;
   onSpawnRat?: () => void;
   onDefeatAllEnemies?: () => void;
   onFreezeEnemyAi?: (frozen: boolean) => void;
 }) {
   const [overrides, setOverrides] = useState<AdaptiveProfile | null>(null);
+  const [combatBaseline, setCombatBaseline] = useState<CombatMetrics | null>(null);
   const signals = gameplay.adaptation.signals;
   const generated = gameplay.dungeonProgress?.currentRoom;
   const debugNow = Date.now();
   const remaining = (deadline: number | null) =>
     deadline === null ? 0 : Math.max(0, deadline - debugNow);
+  const combatMetrics = enemies?.combatMetrics;
+  const metric = (key: keyof CombatMetrics) =>
+    Math.max(0, (combatMetrics?.[key] ?? 0) - (combatBaseline?.[key] ?? 0));
+  const occupied = new Set(
+    enemies?.rats
+      .filter((rat) => rat.health > 0 && rat.state !== 'corpse')
+      .map((rat) => coordinateKey(rat.position)) ?? [],
+  );
+  const escapeTiles = room
+    ? playerLegalEscapeTiles(room, gridPositionToCoordinate(gameplay.player.position), occupied)
+    : [];
+  const combatDuration = metric('combatDurationMs');
 
   function setTrait(trait: AdaptiveTrait, value: number) {
     const next = { ...(overrides ?? gameplay.adaptation.effectiveProfile), [trait]: value };
@@ -337,17 +355,21 @@ export function DebugTools({
                 <li key={rat.id}>
                   <strong>{rat.id}</strong>
                   <span>
-                    ({rat.position.x},{rat.position.y}) · {rat.health} HP · {rat.state}
+                    ({rat.position.x},{rat.position.y}) · {rat.health} HP · {rat.facing} ·{' '}
+                    {rat.awareness} · {rat.state}
                   </span>
                   <span>
                     target{' '}
                     {rat.lockedTarget ? `${rat.lockedTarget.x},${rat.lockedTarget.y}` : 'none'} ·
-                    next {rat.nextPathStep ? `${rat.nextPathStep.x},${rat.nextPathStep.y}` : 'none'}
+                    distance {rat.pathDistanceToPlayer ?? 'unreachable'} · next{' '}
+                    {rat.nextPathStep ? `${rat.nextPathStep.x},${rat.nextPathStep.y}` : 'none'} ·{' '}
+                    blocked {String(rat.pathBlocked)}
                   </span>
                   <span>
                     move {remaining(rat.nextMovementAt)} ms · telegraph{' '}
-                    {remaining(rat.telegraphEndsAt)} ms · cooldown {remaining(rat.cooldownEndsAt)}{' '}
-                    ms · corpse {remaining(rat.corpseEndsAt)} ms
+                    {remaining(rat.telegraphEndsAt)} ms · lunge {remaining(rat.lungeEndsAt)} ms ·{' '}
+                    recovery {remaining(rat.recoveryEndsAt)} ms ({rat.recoveryKind ?? 'none'}) ·{' '}
+                    outcome {rat.attackOutcome ?? 'none'} · corpse {remaining(rat.corpseEndsAt)} ms
                   </span>
                   <span>
                     {rat.spawnSource}: {rat.spawnReason}
@@ -357,6 +379,55 @@ export function DebugTools({
                 </li>
               ))}
             </ul>
+          </section>
+        )}
+        {enemies && combatMetrics && (
+          <section aria-labelledby="combat-debug-title">
+            <h3 id="combat-debug-title">Combat Debug</h3>
+            <dl>
+              <div>
+                <dt>Player escape tiles</dt>
+                <dd>{escapeTiles.map((tile) => `${tile.x},${tile.y}`).join(' · ') || 'None'}</dd>
+              </div>
+              <div>
+                <dt>Alerted / telegraphing / recovering</dt>
+                <dd>
+                  {
+                    enemies.rats.filter((rat) => rat.awareness === 'alerted' && rat.health > 0)
+                      .length
+                  }{' '}
+                  / {enemies.rats.filter((rat) => rat.state === 'telegraphing').length} /{' '}
+                  {enemies.rats.filter((rat) => rat.state === 'recovering').length}
+                </dd>
+              </div>
+              {(
+                [
+                  ['Attacks started', 'attacksStarted'],
+                  ['Attacks landed', 'attacksLanded'],
+                  ['Attacks dodged', 'attacksDodged'],
+                  ['Regular blocks', 'regularBlocks'],
+                  ['Perfect blocks', 'perfectBlocks'],
+                  ['Attacks cancelled by defeat', 'attacksCancelledByDefeat'],
+                  ['Player sword swings', 'swordSwings'],
+                  ['Player hits landed', 'playerHitsLanded'],
+                  ['Player damage taken', 'playerDamageTaken'],
+                  ['Maximum simultaneously alerted Rats', 'maximumSimultaneouslyAlertedRats'],
+                  ['Body-lock prevention activations', 'bodyLockPreventionActivations'],
+                ] as const
+              ).map(([label, key]) => (
+                <div key={key}>
+                  <dt>{label}</dt>
+                  <dd>{metric(key)}</dd>
+                </div>
+              ))}
+              <div>
+                <dt>Combat duration</dt>
+                <dd>{combatDuration} ms</dd>
+              </div>
+            </dl>
+            <SecondaryButton onClick={() => setCombatBaseline({ ...combatMetrics })}>
+              Reset Combat Debug counters
+            </SecondaryButton>
           </section>
         )}
       </div>

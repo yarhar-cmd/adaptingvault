@@ -9,7 +9,12 @@ import type {
 } from '../types/adaptation';
 import { isExperiencePreset } from '../types/adaptation';
 import type { DungeonProgress, GeneratedRoomSave } from '../types/generation';
-import type { StoredEnemyRoomState, StoredRatEnemy } from '../types/enemies';
+import {
+  createCombatMetrics,
+  type CombatMetrics,
+  type StoredEnemyRoomState,
+  type StoredRatEnemy,
+} from '../types/enemies';
 import type { CardinalDirection } from '../types/player';
 import type {
   EvaluationExitChoice,
@@ -37,15 +42,16 @@ import {
   isWalkableCoordinate,
 } from '../utils/roomGeometry';
 import { isValidEvaluationRoomOrder } from '../utils/roomProgression';
+import { directionBetween } from '../utils/enemySystem';
 import type { CharacterId } from './runArchive';
 import { parseAdaptiveProfile } from './playerProfileStorage';
 
 export const ACTIVE_RUN_KEY = 'mirrorvault:active-run:v1';
-export const ACTIVE_RUN_VERSION = 5 as const;
+export const ACTIVE_RUN_VERSION = 6 as const;
 export type ActiveRunStorageIssue = 'invalid' | 'unavailable' | 'write-failed';
 
 export interface ActiveRunRecord {
-  version: 1 | 2 | 3 | 4 | 5;
+  version: 1 | 2 | 3 | 4 | 5 | 6;
   runId: string;
   characterId: CharacterId;
   status: 'active' | 'defeated';
@@ -366,10 +372,9 @@ function parseRoomSnapshot(value: unknown): RoomDefinition | null {
     return null;
   }
 }
-function parseGeneratorVersion(value: unknown): typeof VERSION_INFO.generatorVersion | null {
-  return value === VERSION_INFO.generatorVersion || value === 1
-    ? VERSION_INFO.generatorVersion
-    : null;
+function parseGeneratorVersion(value: unknown): GeneratedRoomSave['generatorVersion'] | null {
+  if (value === 1 || value === 'generator-1') return 'generator-1';
+  return value === VERSION_INFO.generatorVersion ? VERSION_INFO.generatorVersion : null;
 }
 function parseGeneratedSave(value: unknown): GeneratedRoomSave | null {
   const generatorVersion = isObject(value) ? parseGeneratorVersion(value.generatorVersion) : null;
@@ -380,7 +385,7 @@ function parseGeneratedSave(value: unknown): GeneratedRoomSave | null {
   if (
     !isObject(value) ||
     value.schemaVersion !== 1 ||
-    generatorVersion !== VERSION_INFO.generatorVersion ||
+    generatorVersion === null ||
     typeof value.runSeed !== 'string' ||
     !value.runSeed ||
     typeof value.roomSeed !== 'string' ||
@@ -405,6 +410,7 @@ function parseGeneratedSave(value: unknown): GeneratedRoomSave | null {
       value.adaptiveInput.safePathPreference !== 'neutral' &&
       value.adaptiveInput.safePathPreference !== 'narrow') ||
     !isObject(value.details) ||
+    detailsGeneratorVersion === null ||
     value.details.roomSeed !== value.roomSeed ||
     detailsGeneratorVersion !== generatorVersion ||
     (value.details.shape !== 'rectangle' && value.details.shape !== 'l-shape') ||
@@ -471,7 +477,30 @@ function emptyStoredEnemies(roomId: string): StoredEnemyRoomState {
     aiFrozen: false,
     countPlan: null,
     lastBlockRemainingMs: 0,
+    lastBlockKind: null,
+    awarenessGraceRemainingMs: 0,
+    combatMetrics: createCombatMetrics(),
   };
+}
+
+function parseCombatMetrics(value: unknown): CombatMetrics | null {
+  if (!isObject(value)) return null;
+  const keys: (keyof CombatMetrics)[] = [
+    'attacksStarted',
+    'attacksLanded',
+    'attacksDodged',
+    'regularBlocks',
+    'perfectBlocks',
+    'attacksCancelledByDefeat',
+    'swordSwings',
+    'playerHitsLanded',
+    'playerDamageTaken',
+    'combatDurationMs',
+    'maximumSimultaneouslyAlertedRats',
+    'bodyLockPreventionActivations',
+  ];
+  if (keys.some((key) => !isCount(value[key]))) return null;
+  return value as unknown as CombatMetrics;
 }
 
 function parseEnemyCountPlan(value: unknown): StoredEnemyRoomState['countPlan'] | undefined {
@@ -492,7 +521,21 @@ function parseEnemyCountPlan(value: unknown): StoredEnemyRoomState['countPlan'] 
   return value as unknown as NonNullable<StoredEnemyRoomState['countPlan']>;
 }
 
-function parseStoredRat(value: unknown, room: RoomDefinition): StoredRatEnemy | null {
+function parseStoredRat(
+  value: unknown,
+  room: RoomDefinition,
+  recordVersion: ActiveRunRecord['version'],
+): StoredRatEnemy | null {
+  const legacy = recordVersion === 5;
+  const state = isObject(value)
+    ? legacy
+      ? value.state === 'cooldown'
+        ? 'recovering'
+        : value.state === 'chasing' || value.state === 'telegraphing' || value.state === 'corpse'
+          ? value.state
+          : null
+      : value.state
+    : null;
   if (
     !isObject(value) ||
     typeof value.id !== 'string' ||
@@ -501,14 +544,18 @@ function parseStoredRat(value: unknown, room: RoomDefinition): StoredRatEnemy | 
     !isCoordinate(value.position) ||
     !isCount(value.health) ||
     value.health > 2 ||
-    (value.state !== 'chasing' &&
-      value.state !== 'telegraphing' &&
-      value.state !== 'cooldown' &&
-      value.state !== 'corpse') ||
+    (state !== 'idle' &&
+      state !== 'chasing' &&
+      state !== 'telegraphing' &&
+      state !== 'lunging' &&
+      state !== 'recovering' &&
+      state !== 'corpse') ||
     (value.lockedTarget !== null && !isCoordinate(value.lockedTarget)) ||
     !isCount(value.movementRemainingMs) ||
     !isCount(value.telegraphRemainingMs) ||
-    !isCount(value.cooldownRemainingMs) ||
+    (!legacy && !isCount(value.lungeRemainingMs)) ||
+    (!legacy && !isCount(value.recoveryRemainingMs)) ||
+    (legacy && !isCount(value.cooldownRemainingMs)) ||
     !isCount(value.corpseRemainingMs) ||
     !isCount(value.hitFlashRemainingMs) ||
     typeof value.defeatCounted !== 'boolean' ||
@@ -530,32 +577,83 @@ function parseStoredRat(value: unknown, room: RoomDefinition): StoredRatEnemy | 
   )
     return null;
   if (
-    (value.state === 'corpse' &&
+    (state === 'corpse' &&
       (value.health !== 0 || !value.defeatCounted || value.corpseRemainingMs === 0)) ||
-    (value.state !== 'corpse' && (value.health < 1 || value.defeatCounted)) ||
-    (value.state === 'telegraphing' &&
+    (state !== 'corpse' && (value.health < 1 || value.defeatCounted)) ||
+    (state === 'telegraphing' &&
       (value.telegraphRemainingMs === 0 || value.lockedTarget === null)) ||
-    (value.state === 'cooldown' && value.cooldownRemainingMs === 0)
+    (state === 'lunging' && (!isCount(value.lungeRemainingMs) || value.lungeRemainingMs === 0)) ||
+    (state === 'recovering' &&
+      (legacy ? value.cooldownRemainingMs === 0 : value.recoveryRemainingMs === 0))
   )
     return null;
-  return value as unknown as StoredRatEnemy;
+  if (legacy) {
+    const lockedTarget = value.lockedTarget as TileCoordinate | null;
+    return {
+      ...(value as unknown as Omit<StoredRatEnemy, 'facing' | 'awareness' | 'state'>),
+      state,
+      facing: (lockedTarget && directionBetween(position, lockedTarget)) ?? ('left' as const),
+      awareness: 'alerted',
+      lungeRemainingMs: 0,
+      recoveryRemainingMs: state === 'recovering' ? Number(value.cooldownRemainingMs) : 0,
+      recoveryKind: state === 'recovering' ? 'standard' : null,
+      attackOutcome: null,
+      pathDistanceToPlayer: null,
+      pathBlocked: false,
+    };
+  }
+  if (
+    !isFacing(value.facing) ||
+    (value.awareness !== 'unaware' && value.awareness !== 'alerted') ||
+    (value.recoveryKind !== null &&
+      value.recoveryKind !== 'standard' &&
+      value.recoveryKind !== 'perfect-block') ||
+    (value.attackOutcome !== null &&
+      value.attackOutcome !== 'hit' &&
+      value.attackOutcome !== 'miss' &&
+      value.attackOutcome !== 'block' &&
+      value.attackOutcome !== 'perfect-block') ||
+    (value.pathDistanceToPlayer !== null && !isCount(value.pathDistanceToPlayer)) ||
+    typeof value.pathBlocked !== 'boolean'
+  )
+    return null;
+  const recoveryKind = value.recoveryKind as StoredRatEnemy['recoveryKind'];
+  const attackOutcome = value.attackOutcome as StoredRatEnemy['attackOutcome'];
+  if (
+    (state === 'idle' && value.awareness !== 'unaware') ||
+    (state !== 'idle' && state !== 'corpse' && value.awareness !== 'alerted') ||
+    ((state === 'idle' || state === 'chasing' || state === 'telegraphing' || state === 'corpse') &&
+      (recoveryKind !== null || attackOutcome !== null)) ||
+    ((state === 'lunging' || state === 'recovering') &&
+      (value.lockedTarget === null || recoveryKind === null || attackOutcome === null)) ||
+    (state !== 'telegraphing' && value.telegraphRemainingMs !== 0) ||
+    (state !== 'lunging' && value.lungeRemainingMs !== 0) ||
+    (state !== 'recovering' && value.recoveryRemainingMs !== 0)
+  )
+    return null;
+  return { ...(value as unknown as StoredRatEnemy), state };
 }
 
-function parseStoredEnemies(value: unknown, room: RoomDefinition): StoredEnemyRoomState | null {
+function parseStoredEnemies(
+  value: unknown,
+  room: RoomDefinition,
+  recordVersion: ActiveRunRecord['version'],
+): StoredEnemyRoomState | null {
   if (
     !isObject(value) ||
     value.roomId !== room.id ||
     !Array.isArray(value.rats) ||
     value.rats.length > 16 ||
     typeof value.aiFrozen !== 'boolean' ||
-    !isCount(value.lastBlockRemainingMs)
+    !isCount(value.lastBlockRemainingMs) ||
+    (recordVersion === 6 && !isCount(value.awarenessGraceRemainingMs))
   )
     return null;
   const countPlan = parseEnemyCountPlan(value.countPlan);
   if (countPlan === undefined) return null;
   const rats: StoredRatEnemy[] = [];
   for (const raw of value.rats) {
-    const rat = parseStoredRat(raw, room);
+    const rat = parseStoredRat(raw, room, recordVersion);
     if (!rat) {
       if (isObject(raw) && raw.state === 'corpse') continue;
       return null;
@@ -567,12 +665,30 @@ function parseStoredEnemies(value: unknown, room: RoomDefinition): StoredEnemyRo
     .filter((rat) => rat.state !== 'corpse')
     .map((rat) => coordinateKey(rat.position));
   if (new Set(livingPositions).size !== livingPositions.length) return null;
+  const combatMetrics =
+    recordVersion === 6 ? parseCombatMetrics(value.combatMetrics) : createCombatMetrics();
+  if (!combatMetrics) return null;
+  if (
+    recordVersion === 6 &&
+    value.lastBlockKind !== null &&
+    value.lastBlockKind !== 'regular' &&
+    value.lastBlockKind !== 'perfect'
+  )
+    return null;
   return {
     roomId: room.id,
     rats,
     aiFrozen: value.aiFrozen,
     countPlan,
     lastBlockRemainingMs: value.lastBlockRemainingMs,
+    lastBlockKind:
+      recordVersion === 6
+        ? (value.lastBlockKind as StoredEnemyRoomState['lastBlockKind'])
+        : value.lastBlockRemainingMs > 0
+          ? 'regular'
+          : null,
+    awarenessGraceRemainingMs: recordVersion === 6 ? Number(value.awarenessGraceRemainingMs) : 0,
+    combatMetrics,
   };
 }
 
@@ -589,7 +705,8 @@ export function parseActiveRunRecord(value: unknown): ActiveRunRecord | null {
       value.version !== 2 &&
       value.version !== 3 &&
       value.version !== 4 &&
-      value.version !== 5) ||
+      value.version !== 5 &&
+      value.version !== 6) ||
     typeof value.runId !== 'string' ||
     !value.runId ||
     !isCharacterId(value.characterId) ||
@@ -614,7 +731,7 @@ export function parseActiveRunRecord(value: unknown): ActiveRunRecord | null {
     if (!room || !isRestorablePosition(room, playerPosition)) return null;
     const runSeed = `${value.runId}:migrated`;
     return {
-      version: 5,
+      version: 6,
       runId: value.runId,
       characterId: value.characterId,
       status: value.status,
@@ -658,7 +775,9 @@ export function parseActiveRunRecord(value: unknown): ActiveRunRecord | null {
     dungeonProgress.currentRoom?.roomSnapshot ?? getRoomDefinition(progress.currentRoomId);
   if (!room || room.id !== progress.currentRoomId) return null;
   const enemies =
-    value.version >= 5 ? parseStoredEnemies(value.enemies, room) : emptyStoredEnemies(room.id);
+    value.version >= 5
+      ? parseStoredEnemies(value.enemies, room, value.version)
+      : emptyStoredEnemies(room.id);
   if (!enemies) return null;
   const livingPositions = new Set(
     enemies.rats.filter((rat) => rat.state !== 'corpse').map((rat) => coordinateKey(rat.position)),
@@ -689,7 +808,7 @@ export function parseActiveRunRecord(value: unknown): ActiveRunRecord | null {
   if (value.status === 'defeated' && pauseState.isPaused) return null;
   if (timers.pendingRune && !isRestorablePosition(room, timers.pendingRune)) return null;
   return {
-    version: 5,
+    version: 6,
     runId: value.runId,
     characterId: value.characterId,
     status: value.status,
@@ -766,7 +885,7 @@ export function createActiveRunRecord(
     now,
   );
   return {
-    version: 5,
+    version: 6,
     runId: gameplay.runStats.runId,
     characterId,
     status: gameplay.status,
@@ -799,16 +918,28 @@ export function createActiveRunRecord(
       aiFrozen: gameplay.enemies.aiFrozen,
       countPlan: gameplay.enemies.countPlan,
       lastBlockRemainingMs: remainingDuration(gameplay.enemies.lastBlockAt, gameplay.pause, now),
+      lastBlockKind: gameplay.enemies.lastBlockKind,
+      awarenessGraceRemainingMs: remainingDuration(
+        gameplay.enemies.awarenessGraceEndsAt,
+        gameplay.pause,
+        now,
+      ),
+      combatMetrics: gameplay.enemies.combatMetrics,
       rats: gameplay.enemies.rats.map((rat) => ({
         id: rat.id,
         type: rat.type,
         position: rat.position,
+        facing: rat.facing,
+        awareness: rat.awareness,
         health: rat.health,
         state: rat.state,
         lockedTarget: rat.lockedTarget,
         movementRemainingMs: remainingDuration(rat.nextMovementAt, gameplay.pause, now),
         telegraphRemainingMs: remainingDuration(rat.telegraphEndsAt, gameplay.pause, now),
-        cooldownRemainingMs: remainingDuration(rat.cooldownEndsAt, gameplay.pause, now),
+        lungeRemainingMs: remainingDuration(rat.lungeEndsAt, gameplay.pause, now),
+        recoveryRemainingMs: remainingDuration(rat.recoveryEndsAt, gameplay.pause, now),
+        recoveryKind: rat.recoveryKind,
+        attackOutcome: rat.attackOutcome,
         corpseRemainingMs: remainingDuration(rat.corpseEndsAt, gameplay.pause, now),
         hitFlashRemainingMs: remainingDuration(rat.hitFlashUntil, gameplay.pause, now),
         defeatCounted: rat.defeatCounted,
@@ -816,6 +947,8 @@ export function createActiveRunRecord(
         spawnReason: rat.spawnReason,
         authoredSpawnNumber: rat.authoredSpawnNumber,
         nextPathStep: rat.nextPathStep,
+        pathDistanceToPlayer: rat.pathDistanceToPlayer,
+        pathBlocked: rat.pathBlocked,
       })),
     },
   };

@@ -10,12 +10,11 @@ import type { DungeonProgress, GeneratedRoomSave } from '../types/generation';
 import type { EnemyRoomState, RatEnemy, StoredEnemyRoomState } from '../types/enemies';
 import {
   PLAYER_DAMAGE_INVULNERABILITY_MS,
-  RAT_ATTACK_COOLDOWN_MS,
   RAT_ATTACK_DAMAGE,
-  RAT_ATTACK_TELEGRAPH_MS,
   RAT_CORPSE_ABSORPTION_MS,
   RAT_MOVEMENT_INTERVAL_MS,
 } from '../types/enemies';
+import { RAT_COMBAT_CONFIG } from '../config/combat';
 import type {
   AttackAction,
   CardinalDirection,
@@ -47,11 +46,15 @@ import { attemptMove, createAttackAction, positionsMatch, turnPlayer } from './p
 import {
   cardinalDistance,
   createRatFromSpawn,
+  deterministicRatMoveCandidates,
+  directionBetween,
   directionFromPlayerToRat,
   emptyEnemyRoomState,
   isLivingRat,
   livingRats,
-  nextRatPathStep,
+  pathDistance,
+  playerLegalEscapeTiles,
+  playerStaticEscapeTiles,
 } from './enemySystem';
 import { coordinateKey } from './roomGeometry';
 
@@ -90,6 +93,10 @@ export type RunPauseState =
 export interface AttackCooldownState {
   readyAt: number | null;
 }
+export interface ShieldTimingState {
+  raisedAt: number | null;
+  lastFacingChangedAt: number | null;
+}
 export interface RunStats {
   runId: string | null;
   startedAt: number | null;
@@ -108,6 +115,7 @@ export interface GameplayState {
   invulnerability: InvulnerabilityState;
   pause: RunPauseState;
   attackCooldown: AttackCooldownState;
+  shieldTiming: ShieldTimingState;
   runStats: RunStats;
   experiencePreset: ExperiencePreset | null;
   evaluationProgress: EvaluationProgress | null;
@@ -219,6 +227,9 @@ function createPauseState(): RunPauseState {
 function createAttackCooldownState(): AttackCooldownState {
   return { readyAt: null };
 }
+function createShieldTimingState(): ShieldTimingState {
+  return { raisedAt: null, lastFacingChangedAt: null };
+}
 function clampHealth(health: number, maximumHealth: number): number {
   return Math.min(Math.max(0, health), maximumHealth);
 }
@@ -233,6 +244,7 @@ export function createGameplayState(maximumHealth: number): GameplayState {
     invulnerability: createInvulnerabilityState(),
     pause: createPauseState(),
     attackCooldown: createAttackCooldownState(),
+    shieldTiming: createShieldTimingState(),
     runStats: createRunStats(),
     experiencePreset: null,
     evaluationProgress: null,
@@ -279,6 +291,7 @@ export function applyPlayerDamage(
       ? createInvulnerabilityState()
       : { expiresAt: event.timestamp + INVULNERABILITY_DURATION_MS, pendingRune: null },
     attackCooldown: fatal ? createAttackCooldownState() : state.attackCooldown,
+    shieldTiming: fatal ? createShieldTimingState() : state.shieldTiming,
     runStats: fatal ? { ...state.runStats, timeSurvived } : state.runStats,
     adaptation: {
       ...state.adaptation,
@@ -287,6 +300,16 @@ export function applyPlayerDamage(
         damageTaken: state.adaptation.signals.damageTaken + event.amount,
       },
     },
+    enemies:
+      event.source === 'rat'
+        ? {
+            ...state.enemies,
+            combatMetrics: {
+              ...state.enemies.combatMetrics,
+              playerDamageTaken: state.enemies.combatMetrics.playerDamageTaken + event.amount,
+            },
+          }
+        : state.enemies,
     lastAttack: fatal ? null : state.lastAttack,
     lastDamage: { ...event, fatal },
     lastAvoidedDamage: null,
@@ -403,10 +426,12 @@ function shiftEnemyTimers(enemies: EnemyRoomState, duration: number): EnemyRoomS
       ...rat,
       nextMovementAt: shiftRatDeadline(rat.nextMovementAt, duration),
       telegraphEndsAt: shiftRatDeadline(rat.telegraphEndsAt, duration),
-      cooldownEndsAt: shiftRatDeadline(rat.cooldownEndsAt, duration),
+      lungeEndsAt: shiftRatDeadline(rat.lungeEndsAt, duration),
+      recoveryEndsAt: shiftRatDeadline(rat.recoveryEndsAt, duration),
       corpseEndsAt: shiftRatDeadline(rat.corpseEndsAt, duration),
       hitFlashUntil: shiftRatDeadline(rat.hitFlashUntil, duration),
     })),
+    awarenessGraceEndsAt: shiftRatDeadline(enemies.awarenessGraceEndsAt, duration),
   };
 }
 
@@ -418,7 +443,10 @@ function defeatRat(rat: RatEnemy, timestamp: number): RatEnemy {
     lockedTarget: null,
     nextMovementAt: null,
     telegraphEndsAt: null,
-    cooldownEndsAt: null,
+    lungeEndsAt: null,
+    recoveryEndsAt: null,
+    recoveryKind: null,
+    attackOutcome: null,
     corpseEndsAt: timestamp + RAT_CORPSE_ABSORPTION_MS,
     hitFlashUntil: null,
     defeatCounted: true,
@@ -430,27 +458,61 @@ function applySwordToRats(
   state: GameplayState,
   attack: AttackAction,
   timestamp: number,
-): { enemies: EnemyRoomState; defeated: number; damaged: number; hit: boolean } {
+): {
+  enemies: EnemyRoomState;
+  defeated: number;
+  damaged: number;
+  hit: boolean;
+  attackedRatIds: string[];
+} {
   if (!attack.target || attack.blockedReason) {
-    return { enemies: state.enemies, defeated: 0, damaged: 0, hit: false };
+    return {
+      enemies: state.enemies,
+      defeated: 0,
+      damaged: 0,
+      hit: false,
+      attackedRatIds: [],
+    };
   }
   const target = gridPositionToCoordinate(attack.target);
   let defeated = 0;
   let damaged = 0;
+  const attackedRatIds: string[] = [];
+  let cancelledAttacks = 0;
   const rats = state.enemies.rats.map((rat) => {
     if (!isLivingRat(rat) || !coordinatesMatch(rat.position, target)) return rat;
+    attackedRatIds.push(rat.id);
     damaged += 1;
     if (rat.health <= attack.damage) {
       defeated += rat.defeatCounted ? 0 : 1;
+      if (rat.state === 'telegraphing') cancelledAttacks += 1;
       return defeatRat(rat, timestamp);
     }
-    return { ...rat, health: rat.health - attack.damage, hitFlashUntil: timestamp + 140 };
+    return {
+      ...rat,
+      awareness: 'alerted' as const,
+      state: rat.state === 'idle' ? ('chasing' as const) : rat.state,
+      nextMovementAt:
+        rat.state === 'idle' ? timestamp + RAT_MOVEMENT_INTERVAL_MS : rat.nextMovementAt,
+      health: rat.health - attack.damage,
+      hitFlashUntil: timestamp + RAT_COMBAT_CONFIG.hitFlashMs,
+    };
   });
   return {
-    enemies: { ...state.enemies, rats },
+    enemies: {
+      ...state.enemies,
+      rats,
+      combatMetrics: {
+        ...state.enemies.combatMetrics,
+        attacksCancelledByDefeat:
+          state.enemies.combatMetrics.attacksCancelledByDefeat + cancelledAttacks,
+        playerHitsLanded: state.enemies.combatMetrics.playerHitsLanded + damaged,
+      },
+    },
     defeated,
     damaged,
     hit: damaged > 0,
+    attackedRatIds,
   };
 }
 
@@ -472,10 +534,14 @@ function processEnemyTick(
     };
   }
   const priorLiving = livingRats(state.enemies).length;
+  const priorAlerted = state.enemies.rats.some(
+    (rat) => isLivingRat(rat) && rat.awareness === 'alerted',
+  );
   const combatDelta =
     priorLiving > 0 && state.enemies.lastTickAt !== null
       ? Math.max(0, Math.min(1_000, timestamp - state.enemies.lastTickAt))
       : 0;
+  const combatDebugDelta = priorAlerted ? combatDelta : 0;
   let nextState: GameplayState = {
     ...state,
     enemies: {
@@ -494,8 +560,49 @@ function processEnemyTick(
       },
     },
   };
-  const occupied = new Set(livingRats(nextState.enemies).map((rat) => coordinateKey(rat.position)));
   const player = gridPositionToCoordinate(nextState.player.position);
+  const graceComplete =
+    nextState.enemies.awarenessGraceEndsAt === null ||
+    timestamp >= nextState.enemies.awarenessGraceEndsAt;
+  const ratsAfterAwareness = nextState.enemies.rats.map((rat) => {
+    if (!isLivingRat(rat)) return rat;
+    const distance = pathDistance(action.room, rat.position, player);
+    if (
+      rat.awareness === 'unaware' &&
+      graceComplete &&
+      distance !== null &&
+      distance <= RAT_COMBAT_CONFIG.awarenessRangeTiles
+    ) {
+      return {
+        ...rat,
+        awareness: 'alerted' as const,
+        state: 'chasing' as const,
+        nextMovementAt: timestamp + RAT_MOVEMENT_INTERVAL_MS,
+        pathDistanceToPlayer: distance,
+      };
+    }
+    return { ...rat, pathDistanceToPlayer: distance };
+  });
+  const alertedCount = ratsAfterAwareness.filter(
+    (rat) => isLivingRat(rat) && rat.awareness === 'alerted',
+  ).length;
+  const previousMetrics = nextState.enemies.combatMetrics;
+  nextState = {
+    ...nextState,
+    enemies: {
+      ...nextState.enemies,
+      rats: ratsAfterAwareness,
+      combatMetrics: {
+        ...previousMetrics,
+        combatDurationMs: previousMetrics.combatDurationMs + combatDebugDelta,
+        maximumSimultaneouslyAlertedRats: Math.max(
+          previousMetrics.maximumSimultaneouslyAlertedRats,
+          alertedCount,
+        ),
+      },
+    },
+  };
+  const occupied = new Set(livingRats(nextState.enemies).map((rat) => coordinateKey(rat.position)));
   const ordered = [...nextState.enemies.rats].sort((left, right) =>
     left.id.localeCompare(right.id),
   );
@@ -514,6 +621,7 @@ function processEnemyTick(
       rat.telegraphEndsAt !== null &&
       timestamp >= rat.telegraphEndsAt
     ) {
+      const impactAt = rat.telegraphEndsAt;
       const targetHit = rat.lockedTarget !== null && coordinatesMatch(rat.lockedTarget, player);
       const attackDirection = directionFromPlayerToRat(player, rat.position);
       const blocked =
@@ -521,6 +629,20 @@ function processEnemyTick(
         attackDirection !== null &&
         nextState.player.isShielding &&
         nextState.player.facing === attackDirection;
+      const perfectWindowStartedAt = impactAt - RAT_COMBAT_CONFIG.perfectBlockWindowMs;
+      const perfectInputAt = Math.max(
+        nextState.shieldTiming.raisedAt ?? Number.NEGATIVE_INFINITY,
+        nextState.shieldTiming.lastFacingChangedAt ?? Number.NEGATIVE_INFINITY,
+      );
+      const perfectBlock =
+        blocked && perfectInputAt >= perfectWindowStartedAt && perfectInputAt <= impactAt;
+      const outcome = !targetHit
+        ? ('miss' as const)
+        : !blocked
+          ? ('hit' as const)
+          : perfectBlock
+            ? ('perfect-block' as const)
+            : ('block' as const);
       let signals = nextState.adaptation.signals;
       signals = {
         ...signals,
@@ -531,7 +653,24 @@ function processEnemyTick(
       nextState = {
         ...nextState,
         adaptation: { ...nextState.adaptation, signals },
-        enemies: blocked ? { ...nextState.enemies, lastBlockAt: timestamp } : nextState.enemies,
+        enemies: {
+          ...nextState.enemies,
+          lastBlockAt: blocked ? impactAt : nextState.enemies.lastBlockAt,
+          lastBlockKind: blocked
+            ? perfectBlock
+              ? 'perfect'
+              : 'regular'
+            : nextState.enemies.lastBlockKind,
+          combatMetrics: {
+            ...nextState.enemies.combatMetrics,
+            attacksLanded:
+              nextState.enemies.combatMetrics.attacksLanded + (targetHit && !blocked ? 1 : 0),
+            attacksDodged: nextState.enemies.combatMetrics.attacksDodged + (!targetHit ? 1 : 0),
+            regularBlocks:
+              nextState.enemies.combatMetrics.regularBlocks + (blocked && !perfectBlock ? 1 : 0),
+            perfectBlocks: nextState.enemies.combatMetrics.perfectBlocks + (perfectBlock ? 1 : 0),
+          },
+        },
         announcement: blocked
           ? 'Rat attack blocked.'
           : !targetHit
@@ -543,28 +682,48 @@ function processEnemyTick(
           id: `rat-attack-${rat.id}-${timestamp}`,
           source: 'rat',
           amount: RAT_ATTACK_DAMAGE,
-          timestamp,
+          timestamp: impactAt,
         });
       }
       rat = {
         ...rat,
-        state: 'cooldown',
-        lockedTarget: null,
+        state: 'lunging',
         telegraphEndsAt: null,
-        cooldownEndsAt: timestamp + RAT_ATTACK_COOLDOWN_MS,
+        lungeEndsAt: impactAt + RAT_COMBAT_CONFIG.lungeMs,
+        recoveryEndsAt: null,
+        recoveryKind: perfectBlock ? 'perfect-block' : 'standard',
+        attackOutcome: outcome,
         nextMovementAt: null,
         nextPathStep: null,
       };
-    } else if (
-      rat.state === 'cooldown' &&
-      rat.cooldownEndsAt !== null &&
-      timestamp >= rat.cooldownEndsAt
+    }
+    if (rat.state === 'lunging' && rat.lungeEndsAt !== null && timestamp >= rat.lungeEndsAt) {
+      const recoveryStartedAt = rat.lungeEndsAt;
+      const recoveryDuration =
+        rat.recoveryKind === 'perfect-block'
+          ? RAT_COMBAT_CONFIG.perfectBlockRecoveryMs
+          : RAT_COMBAT_CONFIG.recoveryMs;
+      rat = {
+        ...rat,
+        state: 'recovering',
+        lungeEndsAt: null,
+        recoveryEndsAt: recoveryStartedAt + recoveryDuration,
+      };
+    }
+    if (
+      rat.state === 'recovering' &&
+      rat.recoveryEndsAt !== null &&
+      timestamp >= rat.recoveryEndsAt
     ) {
+      const recoveredAt = rat.recoveryEndsAt;
       rat = {
         ...rat,
         state: 'chasing',
-        cooldownEndsAt: null,
-        nextMovementAt: timestamp,
+        lockedTarget: null,
+        recoveryEndsAt: null,
+        recoveryKind: null,
+        attackOutcome: null,
+        nextMovementAt: recoveredAt,
       };
     }
     if (nextState.status !== 'active') {
@@ -573,13 +732,20 @@ function processEnemyTick(
     }
     if (rat.state === 'chasing') {
       if (cardinalDistance(rat.position, player) === 1) {
+        const facing = directionBetween(rat.position, player) ?? rat.facing;
         rat = {
           ...rat,
+          facing,
           state: 'telegraphing',
           lockedTarget: { ...player },
-          telegraphEndsAt: timestamp + RAT_ATTACK_TELEGRAPH_MS,
+          telegraphEndsAt: timestamp + RAT_COMBAT_CONFIG.telegraphMs,
+          lungeEndsAt: null,
+          recoveryEndsAt: null,
+          recoveryKind: null,
+          attackOutcome: null,
           nextMovementAt: null,
           nextPathStep: null,
+          pathBlocked: false,
         };
         nextState = {
           ...nextState,
@@ -590,16 +756,53 @@ function processEnemyTick(
               enemyAttacksStarted: nextState.adaptation.signals.enemyAttacksStarted + 1,
             },
           },
+          enemies: {
+            ...nextState.enemies,
+            combatMetrics: {
+              ...nextState.enemies.combatMetrics,
+              attacksStarted: nextState.enemies.combatMetrics.attacksStarted + 1,
+            },
+          },
         };
       } else if (rat.nextMovementAt !== null && timestamp >= rat.nextMovementAt) {
+        const staticEscapes = playerStaticEscapeTiles(action.room, player);
+        const legalEscapes = playerLegalEscapeTiles(action.room, player, occupied);
+        const protectedEscape =
+          staticEscapes.length >= 2 && legalEscapes.length === 1 ? legalEscapes[0]! : null;
         occupied.delete(coordinateKey(rat.position));
-        const step = nextRatPathStep(action.room, rat, player, occupied);
-        if (step && !coordinatesMatch(step, player) && !occupied.has(coordinateKey(step))) {
-          rat = { ...rat, position: step, nextPathStep: step };
+        const candidates = deterministicRatMoveCandidates(action.room, rat, player, occupied);
+        const preferred = candidates[0] ?? null;
+        const shouldPreventLock = Boolean(
+          preferred && protectedEscape && coordinatesMatch(preferred, protectedEscape),
+        );
+        const step = shouldPreventLock
+          ? (candidates.find((candidate) => !coordinatesMatch(candidate, protectedEscape!)) ?? null)
+          : preferred;
+        if (step) {
+          rat = {
+            ...rat,
+            position: step,
+            facing: directionBetween(rat.position, step) ?? rat.facing,
+            nextPathStep: step,
+            pathBlocked: false,
+          };
           occupied.add(coordinateKey(step));
         } else {
           occupied.add(coordinateKey(rat.position));
-          rat = { ...rat, nextPathStep: step };
+          rat = { ...rat, nextPathStep: preferred, pathBlocked: true };
+        }
+        if (shouldPreventLock) {
+          nextState = {
+            ...nextState,
+            enemies: {
+              ...nextState.enemies,
+              combatMetrics: {
+                ...nextState.enemies.combatMetrics,
+                bodyLockPreventionActivations:
+                  nextState.enemies.combatMetrics.bodyLockPreventionActivations + 1,
+              },
+            },
+          };
         }
         rat = { ...rat, nextMovementAt: timestamp + RAT_MOVEMENT_INTERVAL_MS };
       }
@@ -706,6 +909,7 @@ export function gameplayReducer(state: GameplayState, action: GameplayAction): G
       lastMove: null,
       blockedMove: null,
       lastAttack: null,
+      shieldTiming: createShieldTimingState(),
       lastDamage: null,
       lastAvoidedDamage: null,
       announcement: '',
@@ -797,6 +1001,7 @@ export function gameplayReducer(state: GameplayState, action: GameplayAction): G
     return {
       ...state,
       player: { ...state.player, isShielding: false, shieldDirection: null },
+      shieldTiming: createShieldTimingState(),
       pause: {
         isPaused: true,
         reason: action.reason,
@@ -863,6 +1068,9 @@ export function gameplayReducer(state: GameplayState, action: GameplayAction): G
         isShielding: action.isShielding,
         shieldDirection: action.isShielding ? state.player.facing : null,
       },
+      shieldTiming: action.isShielding
+        ? { raisedAt: timestamp, lastFacingChangedAt: null }
+        : createShieldTimingState(),
       adaptation: {
         ...adaptation,
         shieldStartedAt: action.isShielding ? timestamp : null,
@@ -886,6 +1094,41 @@ export function gameplayReducer(state: GameplayState, action: GameplayAction): G
     );
     const adaptation = withMeaningfulAction(state.adaptation, action.timestamp);
     const ratResult = applySwordToRats(state, attack, action.timestamp);
+    const attackedPositions = state.enemies.rats
+      .filter((rat) => ratResult.attackedRatIds.includes(rat.id))
+      .map((rat) => rat.position);
+    const rats = ratResult.enemies.rats.map((rat) => {
+      if (!isLivingRat(rat) || attackedPositions.length === 0) return rat;
+      const shouldAlert =
+        ratResult.attackedRatIds.includes(rat.id) ||
+        attackedPositions.some((position) => {
+          const distance = action.room ? pathDistance(action.room, rat.position, position) : null;
+          return distance !== null && distance <= RAT_COMBAT_CONFIG.alertPropagationRangeTiles;
+        });
+      if (!shouldAlert || rat.awareness === 'alerted') return rat;
+      return {
+        ...rat,
+        awareness: 'alerted' as const,
+        state: rat.state === 'idle' ? ('chasing' as const) : rat.state,
+        nextMovementAt:
+          rat.state === 'idle' ? action.timestamp + RAT_MOVEMENT_INTERVAL_MS : rat.nextMovementAt,
+      };
+    });
+    const alertedCount = rats.filter(
+      (rat) => isLivingRat(rat) && rat.awareness === 'alerted',
+    ).length;
+    const enemies = {
+      ...ratResult.enemies,
+      rats,
+      combatMetrics: {
+        ...ratResult.enemies.combatMetrics,
+        swordSwings: ratResult.enemies.combatMetrics.swordSwings + 1,
+        maximumSimultaneouslyAlertedRats: Math.max(
+          ratResult.enemies.combatMetrics.maximumSimultaneouslyAlertedRats,
+          alertedCount,
+        ),
+      },
+    };
     return {
       ...state,
       adaptation: {
@@ -898,7 +1141,7 @@ export function gameplayReducer(state: GameplayState, action: GameplayAction): G
           ratsDefeated: adaptation.signals.ratsDefeated + ratResult.defeated,
         },
       },
-      enemies: ratResult.enemies,
+      enemies,
       runStats: {
         ...state.runStats,
         enemiesDefeated: state.runStats.enemiesDefeated + ratResult.defeated,
@@ -931,6 +1174,9 @@ export function gameplayReducer(state: GameplayState, action: GameplayAction): G
         },
       },
       player: turnPlayer(state.player, action.direction),
+      shieldTiming: state.player.isShielding
+        ? { ...state.shieldTiming, lastFacingChangedAt: action.timestamp ?? Date.now() }
+        : state.shieldTiming,
       announcement: `Facing ${action.direction}.`,
     };
   }
@@ -953,6 +1199,7 @@ export function gameplayReducer(state: GameplayState, action: GameplayAction): G
         isShielding: false,
         shieldDirection: null,
       },
+      shieldTiming: createShieldTimingState(),
       invulnerability: createInvulnerabilityState(),
       runStats: { ...state.runStats, dungeonRoomsCleared, roomsCleared: dungeonRoomsCleared },
       evaluationProgress: {
@@ -1049,17 +1296,28 @@ export function restoreGameplayState(
       snapshot.enemies.lastBlockRemainingMs > 0
         ? now + snapshot.enemies.lastBlockRemainingMs
         : null,
+    lastBlockKind: snapshot.enemies.lastBlockKind,
     lastTickAt: now,
+    awarenessGraceEndsAt:
+      snapshot.enemies.awarenessGraceRemainingMs > 0
+        ? now + snapshot.enemies.awarenessGraceRemainingMs
+        : null,
+    combatMetrics: snapshot.enemies.combatMetrics,
     rats: snapshot.enemies.rats.map((rat) => ({
       id: rat.id,
       type: rat.type,
       position: rat.position,
+      facing: rat.facing,
+      awareness: rat.awareness,
       health: rat.health,
       state: rat.state,
       lockedTarget: rat.lockedTarget,
       nextMovementAt: rat.movementRemainingMs > 0 ? now + rat.movementRemainingMs : null,
       telegraphEndsAt: rat.telegraphRemainingMs > 0 ? now + rat.telegraphRemainingMs : null,
-      cooldownEndsAt: rat.cooldownRemainingMs > 0 ? now + rat.cooldownRemainingMs : null,
+      lungeEndsAt: rat.lungeRemainingMs > 0 ? now + rat.lungeRemainingMs : null,
+      recoveryEndsAt: rat.recoveryRemainingMs > 0 ? now + rat.recoveryRemainingMs : null,
+      recoveryKind: rat.recoveryKind,
+      attackOutcome: rat.attackOutcome,
       corpseEndsAt: rat.corpseRemainingMs > 0 ? now + rat.corpseRemainingMs : null,
       hitFlashUntil: rat.hitFlashRemainingMs > 0 ? now + rat.hitFlashRemainingMs : null,
       defeatCounted: rat.defeatCounted,
@@ -1067,6 +1325,8 @@ export function restoreGameplayState(
       spawnReason: rat.spawnReason,
       authoredSpawnNumber: rat.authoredSpawnNumber,
       nextPathStep: rat.nextPathStep,
+      pathDistanceToPlayer: rat.pathDistanceToPlayer,
+      pathBlocked: rat.pathBlocked,
     })),
   };
   return {
