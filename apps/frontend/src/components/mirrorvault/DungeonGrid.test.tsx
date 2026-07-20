@@ -4,8 +4,13 @@ import type { AttackAction, PlayerState } from '../../types/player';
 import type { RoomDefinition } from '../../types/rooms';
 import { CURRENT_ROOM_LAYOUT } from '../../data/roomLayout';
 import { evaluationRooms } from '../../data/rooms/evaluationRooms';
-import { coordinateToGridPosition, roomBounds } from '../../utils/roomGeometry';
+import {
+  coordinateToGridPosition,
+  createRectangularRoom,
+  roomBounds,
+} from '../../utils/roomGeometry';
 import { DungeonGrid } from './DungeonGrid';
+import { createRoomEnemyState } from '../../utils/enemySystem';
 
 const bounds = { rows: 5, columns: 8 } as const;
 const basePlayer: PlayerState = {
@@ -76,7 +81,7 @@ describe('Resonant Ruins dungeon grid', () => {
     expect(screen.getByText('Moved right.')).toHaveAttribute('aria-live', 'polite');
   });
 
-  it('keeps facing and shield visuals visible and updates the protected tile', () => {
+  it('shows the held shield at the player edge, follows facing, and renders no protected tile', () => {
     const shieldingRight: PlayerState = {
       ...basePlayer,
       isShielding: true,
@@ -86,7 +91,10 @@ describe('Resonant Ruins dungeon grid', () => {
 
     expect(container.querySelector('.player-token--shielding')).not.toBeNull();
     expect(container.querySelector('.player-token__facing')).toHaveTextContent('→');
-    expect(container.querySelectorAll('.tile--shield-protected')).toHaveLength(1);
+    expect(container.querySelector('.player-token__shield--active')).not.toBeNull();
+    expect(container.querySelector('.player-token--facing-right')).not.toBeNull();
+    expect(container.querySelector('.tile--shield-protected')).toBeNull();
+    expect(container.querySelector('.shield-tile-marker')).toBeNull();
 
     const shieldingDown: PlayerState = {
       ...shieldingRight,
@@ -114,7 +122,8 @@ describe('Resonant Ruins dungeon grid', () => {
 
     expect(container.querySelector('.player-token--shielding')).not.toBeNull();
     expect(container.querySelector('.player-token__facing')).toHaveTextContent('↓');
-    expect(container.querySelectorAll('.tile--shield-protected')).toHaveLength(1);
+    expect(container.querySelector('.player-token--facing-down')).not.toBeNull();
+    expect(container.querySelector('.tile--shield-protected')).toBeNull();
   });
 
   it('retains the shield treatment without rendering a protected tile outside the room', () => {
@@ -129,6 +138,96 @@ describe('Resonant Ruins dungeon grid', () => {
     expect(container.querySelector('.player-token--shielding')).not.toBeNull();
     expect(container.querySelector('.player-token__facing')).toHaveTextContent('↑');
     expect(container.querySelector('.tile--shield-protected')).toBeNull();
+  });
+
+  it('does not render an inactive carried shield', () => {
+    const { container } = renderGrid(basePlayer);
+    expect(container.querySelector('.player-token__shield')).toBeNull();
+  });
+
+  it('renders a CSS Rat with cardinal facing and distinct combat-state hooks', () => {
+    const room = createRectangularRoom({
+      id: 'rat-visual-room',
+      phase: 'dungeon',
+      width: 9,
+      height: 7,
+      exitEnabled: true,
+      enemySpawns: [
+        {
+          id: 'visual-rat',
+          type: 'rat',
+          tile: { x: 5, y: 3 },
+          order: 1,
+          source: 'generated',
+          reason: 'Visual test',
+        },
+      ],
+    });
+    const enemies = createRoomEnemyState(room, 'seasoned-adventurer', 1_000);
+    const { container, rerender } = render(
+      <DungeonGrid
+        bounds={roomBounds(room)}
+        hazards={[]}
+        room={room}
+        player={{ ...basePlayer, position: { row: 3, column: 2 } }}
+        status="active"
+        isInvulnerable={false}
+        blockedMove={null}
+        lastAttack={null}
+        lastDamage={null}
+        lastAvoidedDamage={null}
+        announcement="Rat unaware."
+        controlsDisabled={false}
+        onMove={vi.fn()}
+        onAttack={() => true}
+        onShieldChange={vi.fn()}
+        enemies={enemies}
+      />,
+    );
+    const rat = container.querySelector('[data-enemy-id="visual-rat"]');
+    expect(rat).toHaveClass('rat-token--idle', 'rat-token--facing-left');
+    expect(rat).toHaveAttribute('data-enemy-awareness', 'unaware');
+    expect(rat?.querySelectorAll('.rat-token__ear')).toHaveLength(2);
+    expect(rat?.querySelector('.rat-token__snout')).not.toBeNull();
+    expect(rat?.querySelector('.rat-token__tail')).not.toBeNull();
+
+    const telegraphing = {
+      ...enemies,
+      rats: [
+        {
+          ...enemies.rats[0]!,
+          facing: 'down' as const,
+          awareness: 'alerted' as const,
+          state: 'telegraphing' as const,
+          lockedTarget: { x: 5, y: 4 },
+          telegraphEndsAt: 2_000,
+        },
+      ],
+    };
+    rerender(
+      <DungeonGrid
+        bounds={roomBounds(room)}
+        hazards={[]}
+        room={room}
+        player={{ ...basePlayer, position: { row: 3, column: 2 } }}
+        status="active"
+        isInvulnerable={false}
+        blockedMove={null}
+        lastAttack={null}
+        lastDamage={null}
+        lastAvoidedDamage={null}
+        announcement="Rat telegraphing."
+        controlsDisabled={false}
+        onMove={vi.fn()}
+        onAttack={() => true}
+        onShieldChange={vi.fn()}
+        enemies={telegraphing}
+      />,
+    );
+    expect(container.querySelector('[data-enemy-id="visual-rat"]')).toHaveClass(
+      'rat-token--telegraphing',
+      'rat-token--facing-down',
+    );
   });
 
   it('renders an in-room slash briefly and never renders an out-of-room target', () => {

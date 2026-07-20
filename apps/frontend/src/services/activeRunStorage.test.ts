@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { VERSION_INFO } from '../config/version';
 import { NEUTRAL_ADAPTIVE_PROFILE } from './playerProfileStorage';
+import { getRoomDefinition } from '../data/rooms';
 import { createAdaptiveRunState, createBehaviorSignals } from '../utils/adaptiveProfile';
 import { generateDungeonRoom } from '../utils/generatedRoomGenerator';
 import {
@@ -12,7 +12,8 @@ import {
   ACTIVE_RUN_VERSION,
   type ActiveRunRecord,
 } from './activeRunStorage';
-import { getTimeSurvived, restoreGameplayState } from '../utils/gameplayState';
+import { gameplayReducer, getTimeSurvived, restoreGameplayState } from '../utils/gameplayState';
+import { createCombatMetrics, type StoredRatEnemy } from '../types/enemies';
 
 function record(overrides: Partial<ActiveRunRecord> = {}): ActiveRunRecord {
   return {
@@ -75,6 +76,9 @@ function record(overrides: Partial<ActiveRunRecord> = {}): ActiveRunRecord {
       aiFrozen: false,
       countPlan: null,
       lastBlockRemainingMs: 0,
+      lastBlockKind: null,
+      awarenessGraceRemainingMs: 0,
+      combatMetrics: createCombatMetrics(),
     },
     ...overrides,
   };
@@ -90,7 +94,36 @@ function legacyAdaptation() {
   };
 }
 
-describe('Resonant Ruins active-run storage v5', () => {
+function storedRat(overrides: Partial<StoredRatEnemy> = {}): StoredRatEnemy {
+  return {
+    id: 'evaluation-room-02-rat-1',
+    type: 'rat',
+    position: { x: 6, y: 5 },
+    facing: 'left',
+    awareness: 'alerted',
+    health: 1,
+    state: 'telegraphing',
+    lockedTarget: { x: 5, y: 5 },
+    movementRemainingMs: 0,
+    telegraphRemainingMs: 200,
+    lungeRemainingMs: 0,
+    recoveryRemainingMs: 0,
+    recoveryKind: null,
+    attackOutcome: null,
+    corpseRemainingMs: 0,
+    hitFlashRemainingMs: 40,
+    defeatCounted: false,
+    spawnSource: 'authored',
+    spawnReason: 'Persistence fixture',
+    authoredSpawnNumber: 1,
+    nextPathStep: null,
+    pathDistanceToPlayer: 1,
+    pathBlocked: false,
+    ...overrides,
+  };
+}
+
+describe('Resonant Ruins active-run storage v6', () => {
   beforeEach(() => localStorage.clear());
   it('round-trips preset, run seed, profile signals, Chamber analytics, and exact position', () => {
     const active = record();
@@ -114,7 +147,7 @@ describe('Resonant Ruins active-run storage v5', () => {
   });
   it('repairs an invalid current position to a safe spawn without discarding the run', () => {
     const repaired = parseActiveRunRecord({ ...record(), playerPosition: { x: 0, y: 0 } });
-    expect(repaired).toMatchObject({ version: 5, positionRepaired: true });
+    expect(repaired).toMatchObject({ version: 6, positionRepaired: true });
     expect(repaired?.playerPosition).not.toEqual({ x: 0, y: 0 });
   });
   it('round-trips a paused run and its remaining gameplay timers', () => {
@@ -154,26 +187,10 @@ describe('Resonant Ruins active-run storage v5', () => {
         aiFrozen: true,
         countPlan: null,
         lastBlockRemainingMs: 80,
-        rats: [
-          {
-            id: 'evaluation-room-02-rat-1',
-            type: 'rat',
-            position: { x: 6, y: 5 },
-            health: 1,
-            state: 'telegraphing',
-            lockedTarget: { x: 5, y: 5 },
-            movementRemainingMs: 0,
-            telegraphRemainingMs: 200,
-            cooldownRemainingMs: 0,
-            corpseRemainingMs: 0,
-            hitFlashRemainingMs: 40,
-            defeatCounted: false,
-            spawnSource: 'authored',
-            spawnReason: 'Persistence fixture',
-            authoredSpawnNumber: 1,
-            nextPathStep: null,
-          },
-        ],
+        lastBlockKind: 'regular',
+        awarenessGraceRemainingMs: 120,
+        combatMetrics: createCombatMetrics(),
+        rats: [storedRat()],
       },
     });
     expect(saveActiveRun(active)).toBeNull();
@@ -183,6 +200,8 @@ describe('Resonant Ruins active-run storage v5', () => {
       roomId: 'evaluation-room-02',
       aiFrozen: true,
       lastBlockAt: 100_080,
+      lastBlockKind: 'regular',
+      awarenessGraceEndsAt: 100_120,
       rats: [
         {
           id: 'evaluation-room-02-rat-1',
@@ -194,12 +213,123 @@ describe('Resonant Ruins active-run storage v5', () => {
       ],
     });
   });
+  it('restores lunge and recovery exactly without applying post-impact damage twice', () => {
+    const duringLunge = record({
+      currentHealth: 3,
+      playerPosition: { x: 5, y: 5 },
+      enemies: {
+        ...record().enemies!,
+        rats: [
+          storedRat({
+            state: 'lunging',
+            telegraphRemainingMs: 0,
+            lungeRemainingMs: 75,
+            recoveryKind: 'standard',
+            attackOutcome: 'hit',
+            hitFlashRemainingMs: 0,
+          }),
+        ],
+      },
+    });
+    const restored = restoreGameplayState(toRestorableGameplayRun(duringLunge), 6, 100_000);
+    expect(restored.enemies.rats[0]).toMatchObject({
+      state: 'lunging',
+      lockedTarget: { x: 5, y: 5 },
+      lungeEndsAt: 100_075,
+      attackOutcome: 'hit',
+    });
+    const fixture = getRoomDefinition('evaluation-room-02')!;
+    const afterLunge = gameplayReducer(restored, {
+      type: 'enemy-tick',
+      timestamp: 100_075,
+      room: fixture,
+    });
+    expect(afterLunge.currentHealth).toBe(3);
+    expect(afterLunge.enemies.rats[0]).toMatchObject({
+      state: 'recovering',
+      recoveryEndsAt: 100_375,
+    });
+
+    const recoveryRecord = record({
+      enemies: {
+        ...record().enemies!,
+        rats: [
+          storedRat({
+            state: 'recovering',
+            lockedTarget: { x: 5, y: 5 },
+            telegraphRemainingMs: 0,
+            recoveryRemainingMs: 180,
+            recoveryKind: 'perfect-block',
+            attackOutcome: 'perfect-block',
+            hitFlashRemainingMs: 0,
+          }),
+        ],
+      },
+    });
+    const restoredRecovery = restoreGameplayState(
+      toRestorableGameplayRun(recoveryRecord),
+      6,
+      200_000,
+    );
+    expect(restoredRecovery.enemies.rats[0]).toMatchObject({
+      state: 'recovering',
+      recoveryEndsAt: 200_180,
+      recoveryKind: 'perfect-block',
+    });
+  });
+  it('migrates v5 Rat cooldown state into v6 recovery without losing remaining time', () => {
+    const base = record();
+    const migrated = parseActiveRunRecord({
+      ...base,
+      version: 5,
+      enemies: {
+        roomId: 'evaluation-room-02',
+        aiFrozen: false,
+        countPlan: null,
+        lastBlockRemainingMs: 0,
+        rats: [
+          {
+            id: 'legacy-rat',
+            type: 'rat',
+            position: { x: 6, y: 5 },
+            health: 1,
+            state: 'cooldown',
+            lockedTarget: null,
+            movementRemainingMs: 0,
+            telegraphRemainingMs: 0,
+            cooldownRemainingMs: 240,
+            corpseRemainingMs: 0,
+            hitFlashRemainingMs: 0,
+            defeatCounted: false,
+            spawnSource: 'authored',
+            spawnReason: 'Legacy v5 Rat',
+            nextPathStep: null,
+          },
+        ],
+      },
+    });
+    expect(migrated).toMatchObject({
+      version: 6,
+      enemies: {
+        awarenessGraceRemainingMs: 0,
+        rats: [
+          {
+            id: 'legacy-rat',
+            state: 'recovering',
+            awareness: 'alerted',
+            recoveryRemainingMs: 240,
+            recoveryKind: 'standard',
+          },
+        ],
+      },
+    });
+  });
   it('migrates a v2 active run as unpaused with cleared temporary timers', () => {
     const legacy = { ...record(), version: 2 as const, adaptation: legacyAdaptation() };
     delete legacy.pauseState;
     delete legacy.timers;
     expect(parseActiveRunRecord(legacy)).toMatchObject({
-      version: 5,
+      version: 6,
       pauseState: { isPaused: false, totalPausedMs: 0 },
       timers: {
         invulnerabilityRemainingMs: 0,
@@ -221,7 +351,7 @@ describe('Resonant Ruins active-run storage v5', () => {
       },
     });
     expect(migrated).toMatchObject({
-      version: 5,
+      version: 6,
       adaptation: {
         completedSummary: { roomCount: 1, totalRoomTimeMs: 4_000, movementSteps: 10 },
         signals: { movementSteps: 3, roomTimesMs: [] },
@@ -279,8 +409,8 @@ describe('Resonant Ruins active-run storage v5', () => {
       enemies: { ...base.enemies, roomId: generated.roomSnapshot.id },
     });
     expect(migrated?.dungeonProgress?.currentRoom).toMatchObject({
-      generatorVersion: VERSION_INFO.generatorVersion,
-      details: { generatorVersion: VERSION_INFO.generatorVersion },
+      generatorVersion: 'generator-1',
+      details: { generatorVersion: 'generator-1' },
     });
   });
   it('reports corrupt JSON and can clear an active run', () => {
